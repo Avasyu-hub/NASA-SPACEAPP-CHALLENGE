@@ -1,69 +1,60 @@
-# Member 2: Terrain and Simulation Data
+# Member 2: Terrain (horizon masks, heightmaps, ray-cast check)
 
-This folder contains the terrain-data pipeline and the independent terrain
-raycaster owned by Member 2. The pipeline reads the local lunar DEM files,
-writes horizon masks and Three.js-compatible heightmaps, and never commits
-the raw NASA input rasters.
+Writes the terrain files in `data_out/` that M1 (combine) and M4 (lander view) read, following
+the contract in `goal.md` section 5.2. Raw NASA rasters stay out of git (`data_raw/` is ignored).
 
-## Setup
+## Run
 
-From `Member2\pipeline`:
+From `Member2/`:
 
 ```powershell
-python -m pip install -e ".[test]"
-python -m pytest
+py -m pip install numpy rasterio pyproj pytest
+py -m pytest pipeline/tests -q          # 11 tests, synthetic DEMs (no downloads needed)
+py -m pipeline.export --all             # all 5 sites, about 1 minute; needs data_raw/ (below)
+node --test tests/                      # ray-cast checks, incl. agreement on the real data_out/
 ```
 
-The pipeline needs NumPy, Rasterio, and pyproj. Raw inputs are expected at
-`data_raw\dem\near` and `data_raw\dem\far` in the repository root; the source
-rasters are ignored by Git.
+`--data-raw <folder>` points at a `data_raw/` somewhere else. `--site site04` runs one site.
 
-## Generate assets
+## Outputs (`data_out/`)
 
-Provide a verified site coordinate that falls inside its near-field GeoTIFF.
-Coordinates are not inferred from a filename or guessed from a site label.
-For example, from `Member2\pipeline`:
+| File | Contract | Notes |
+|---|---|---|
+| `sites.json` | #1 | lat/lon/ground height read from the DEM at the chosen site point |
+| `mask/<id>.json` | #3 | `elev_deg`: 360 bins, 2 m mast, az 0..359 clockwise from north. Extra fields: `elev_deg_by_mast` (0/2/5/10 m), `elev_deg_720_by_mast` (0.5 deg), `horizon_dist_km_by_mast` (how far away the blocking terrain is), `search_km`, `dem.far_minus_near` |
+| `heightmap/<id>.json`, `<id>_near.bin`, `<id>_far.bin` | #5 | near 512x512 at 10 m (5.12 km), far 512x512 at 120 m (61.44 km). Float32 LE, row 0 = southernmost, x = east, y = north, heights relative to the lander ground with curvature d^2/2R already subtracted, sampled at cell centres |
 
-```powershell
-python -m lunawise_terrain.compute_mask `
-  --site-id site04 --lat <verified-latitude> --lon <verified-longitude> `
-  --near ..\..\data_raw\dem\near\Site04_final_adj_5mpp_surf.tif `
-  --far ..\..\data_raw\dem\far\LDEM_80S_20M_FLOAT.IMG `
-  --out ..\..\data_out
+`mask` is computed to **200 km** (the far heightmap is only for the 3D view and the ray-cast check).
 
-python -m lunawise_terrain.export_heightmaps `
-  --site-id site04 --lat <verified-latitude> --lon <verified-longitude> `
-  --near ..\..\data_raw\dem\near\Site04_final_adj_5mpp_surf.tif `
-  --far ..\..\data_raw\dem\far\LDEM_80S_20M_FLOAT.IMG `
-  --out ..\..\data_out
-```
+## Method
+- Horizon: for each azimuth, geodesic samples from the site (every 5 m pixel across the near tile,
+  then max(5 m, 0.5 % of distance)) to 200 km; exact 3D elevation angle on the R = 1737.4 km sphere;
+  mask = maximum. Near = PGDA 78 5 m tile, beyond it LOLA LDEM_80S_20M.
+- Far DEM sanity check: far minus near over each 5 m tile, median within 0.06 m (MAD < 1 m) on all sites.
+  The export stops if this is over 50 m (catches km/m or offset mistakes).
+- Site points (never typed in):
+  - Site01/04/07/11: the largest PGDA ROI in `SiteXX_ROIs.shp`. These are regions > 2500 m2 with
+    > 70 % average illumination, Barker et al. 2021.
+  - Site23: PGDA has no ROI file, so the same rule is applied to the PGDA 69 average-illumination
+    map (`pipeline/site_from_illum.py`). On the four sites that have ROIs, that rule lands
+    55-232 m from a PGDA ROI point.
+- Ray-cast check (`src/raycast.js`): marches a straight ray through the near and far grids. It agrees
+  with the mask in 99.7-100 % of checkable samples on all 5 sites. Samples blocked beyond the
+  30.7 km grid can't be checked and are counted separately. This shows the conventions match
+  (azimuth, axes, row order, curvature), not that the terrain is accurate.
 
-The `--far` argument uses the adjacent PDS `.LBL` file to read the raw
-little-endian float raster and its polar-stereographic mapping. The mask
-command requires complete far-field coverage to the requested search radius;
-it stops rather than publishing an incomplete profile. `--allow-incomplete`
-can be used for diagnostics, and the output records per-azimuth coverage.
+## Limits
+- Site23's search reaches only 181 km in some directions (edge of LDEM_80S_20M).
+- The 0 m mask is dominated by the neighbouring 5 m pixels; use 2 m for results.
+- DEM interpolation: PGDA 5 m tiles are ~90 % interpolated pixels (Barker et al. 2021).
 
-Generated files follow the existing `data_out` layout:
+## Raw data (`data_raw/`, not committed)
+| Path | Source |
+|---|---|
+| `dem/near/SiteXX_final_adj_5mpp_surf.tif` (01, 04, 07, 11, 23) | https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/SiteXX/ |
+| `roi/SiteXX/SiteXX_ROIs.shp` (01, 04, 07, 11) | same folder, `SiteXX_ROIs.tgz` (Site23 has none) |
+| `dem/far/LDEM_80S_20M_FLOAT.IMG` + `.LBL` (3.7 GB) | https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/float_img/ |
+| `illum/AVGVISIB_85S_060M_201608.TIF` (34 MB) | https://pgda.gsfc.nasa.gov/data/MoonIllumination/ |
 
-- `mask\<site>.json`: 360-bin profiles for 2 m, 5 m, and 10 m mast heights.
-- `heightmap\<site>.json`: grid dimensions, axes, filenames, and coverage.
-- `heightmap\<site>_near.bin`, `heightmap\<site>_far.bin`: little-endian
-  Float32 terrain heights relative to the site, with lunar curvature removed.
-- `sites.json`: site coordinates, sampled ground elevation, and input source.
-
-The binary heightmaps use row-major cells with +X east and +Y north; rows are
-ordered north-to-south. Their height values are relative to the local ground
-and already include spherical-curvature sag, so the browser raycaster must not
-apply curvature a second time.
-
-## Numerical notes
-
-- The far-field PDS elevations are kilometres relative to the labeled
-  1,737.4 km reference sphere; the pipeline converts them to metres.
-- Horizon angles use a spherical 3-D observer-to-terrain vector, not a flat
-  map-projection slope. Azimuth is clockwise from north.
-- Invalid DEM samples are not replaced with synthetic terrain. Missing
-  coverage is reported and prevents normal production output.
-- The site coordinate must be independently verified. The current source
-  bundle does not provide authoritative coordinates for every candidate.
+The far IMG is opened through its `.LBL`. Values are **km** above 1737.4 km; GDAL reports OFFSET = 1737.4,
+which must not be added (handled in `pipeline/export.py`).
