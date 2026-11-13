@@ -55,6 +55,12 @@
 
     <!-- Center/Right Status & Battery Telemetry -->
     <div class="header-right">
+      <!-- Continuous Tracking Lock Badge -->
+      <div id="tracking-indicator-badge" class="telemetry-box" style="display: none; border-color: var(--blender-accent); color: var(--blender-accent);" data-tooltip="Camera actively tracking celestial body [Dbl-Click canvas or Esc to unlock]">
+        <span class="status-indicator-dot" style="background: var(--blender-accent);"></span>
+        <span id="tracking-indicator-text" class="box-value" style="color: var(--blender-accent);">TRACKING: SUN</span>
+      </div>
+
       <!-- Battery SoC Widget -->
       <div class="telemetry-box" data-tooltip="Lander Battery State-of-Charge">
         <svg class="box-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -144,8 +150,8 @@
 
     <div class="tool-separator"></div>
 
-    <!-- Camera Presets -->
-    <button id="btn-look-sun" class="tool-btn tooltip-trigger" data-tooltip="View: Look at Sun">
+    <!-- Camera Presets / Tracking Lock -->
+    <button id="btn-look-sun" class="tool-btn tooltip-trigger" data-tooltip="Lock/Track Sun Position [Click to toggle]">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="5"></circle>
         <line x1="12" y1="1" x2="12" y2="3"></line>
@@ -159,7 +165,7 @@
       </svg>
     </button>
 
-    <button id="btn-look-earth" class="tool-btn tooltip-trigger" data-tooltip="View: Look at Earth">
+    <button id="btn-look-earth" class="tool-btn tooltip-trigger" data-tooltip="Lock/Track Earth Position [Click to toggle]">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"></circle>
         <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
@@ -299,6 +305,7 @@
       <span class="keycap-hint"><kbd>LMB Drag</kbd> Look View</span>
       <span class="keycap-hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Surface Walk</span>
       <span class="keycap-hint"><kbd>Shift</kbd> Sprint</span>
+      <span class="keycap-hint"><kbd>Dbl-Click</kbd> Lock Sun/Earth Tracker</span>
       <span class="keycap-hint"><kbd>R</kbd> Reset Mast Position</span>
       <span class="keycap-hint"><kbd>Space</kbd> Play / Pause</span>
     </div>

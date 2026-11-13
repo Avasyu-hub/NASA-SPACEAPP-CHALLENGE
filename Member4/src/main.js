@@ -15,6 +15,9 @@ const sunStatusText = document.getElementById('sun-status-text');
 const earthStatusText = document.getElementById('earth-status-text');
 const raycastAgreementText = document.getElementById('raycast-agreement-text');
 
+const trackingBadge = document.getElementById('tracking-indicator-badge');
+const trackingText = document.getElementById('tracking-indicator-text');
+
 const batteryBarFill = document.getElementById('battery-bar-fill');
 const batteryPctText = document.getElementById('battery-pct-text');
 const dataProvenanceText = document.getElementById('data-provenance-text');
@@ -57,6 +60,23 @@ const sim = new LanderSimulation(container, (telemetry) => {
   timeIsoText.textContent = telemetry.timestamp;
   sunCoordsText.textContent = `${telemetry.sunAz}°, ${telemetry.sunEl}°`;
   earthCoordsText.textContent = `${telemetry.earthAz}°, ${telemetry.earthEl}°`;
+
+  // Update Tracking Lock Telemetry
+  if (telemetry.trackingTarget === 'sun') {
+    trackingBadge.style.display = 'flex';
+    trackingText.textContent = 'TRACKING: SUN (LOCKED)';
+    btnLookSun.classList.add('active');
+    btnLookEarth.classList.remove('active');
+  } else if (telemetry.trackingTarget === 'earth') {
+    trackingBadge.style.display = 'flex';
+    trackingText.textContent = 'TRACKING: EARTH (LOCKED)';
+    btnLookEarth.classList.add('active');
+    btnLookSun.classList.remove('active');
+  } else {
+    trackingBadge.style.display = 'none';
+    btnLookSun.classList.remove('active');
+    btnLookEarth.classList.remove('active');
+  }
 
   // Update Battery State-of-Charge Widget
   if (telemetry.landerState) {
@@ -104,9 +124,9 @@ const sim = new LanderSimulation(container, (telemetry) => {
 
   // Data Provenance Label
   if (telemetry.isRealData) {
-    dataProvenanceText.textContent = 'DATA: REAL NASA LOLA 5M/20M MOON_ME & HORIZONS EPHEMERIS';
+    dataProvenanceText.textContent = `DATA: REAL NASA LOLA 5M/20M MOON_ME & HORIZONS · ${telemetry.siteId.toUpperCase()}`;
   } else {
-    dataProvenanceText.textContent = 'DATA: SYNTHETIC PHASE-1 ENGINE (AUTO-DETECTING DATA_OUT/)';
+    dataProvenanceText.textContent = `DATA: SYNTHETIC PHASE-1 ENGINE · ${telemetry.siteId.toUpperCase()}`;
   }
 });
 
@@ -218,10 +238,18 @@ btnScale1x.addEventListener('click', () => setScaleActive(1.0, btnScale1x));
 btnScale3x.addEventListener('click', () => setScaleActive(3.0, btnScale3x));
 btnScale5x.addEventListener('click', () => setScaleActive(5.0, btnScale5x));
 
-// Camera Presets (Fixed to work smoothly in both Lander and Orbital modes)
-btnLookSun.addEventListener('click', () => sim.lookAtSun());
-btnLookEarth.addEventListener('click', () => sim.lookAtEarth());
-btnLookNorth.addEventListener('click', () => sim.lookNorth());
+// Camera Presets & Tracking Lock
+btnLookSun.addEventListener('click', () => {
+  sim.setTrackingTarget('sun');
+});
+
+btnLookEarth.addEventListener('click', () => {
+  sim.setTrackingTarget('earth');
+});
+
+btnLookNorth.addEventListener('click', () => {
+  sim.lookNorth();
+});
 
 // Jump to First Failure
 btnJumpFailure.addEventListener('click', () => {
