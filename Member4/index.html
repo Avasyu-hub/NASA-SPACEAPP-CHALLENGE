@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LunaWise — 3D Lander Digital Twin Simulation</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <!-- Three.js Canvas Container -->
+  <div id="simulation-container"></div>
+
+  <!-- Blender-Style Top Header Bar -->
+  <header class="blender-header">
+    <div class="header-left">
+      <div class="app-brand">
+        <svg class="blender-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 3a9 9 0 0 0 0 18"></path>
+        </svg>
+        <span class="brand-title">LUNAWISE</span>
+      </div>
+
+      <div class="header-separator"></div>
+
+      <!-- Site Dropdown Selector -->
+      <div class="site-selector-wrap">
+        <select id="site-selector" class="blender-select">
+          <option value="site04" selected>Site 04 · Shackleton Rim (Connecting Ridge)</option>
+          <option value="site01">Site 01 · De Gerlache Crater Rim</option>
+          <option value="site07">Site 07 · Malapert Massif Peak</option>
+          <option value="site11">Site 11 · Haworth Crater Rim</option>
+          <option value="site23">Site 23 · Amundsen Crater Rim</option>
+        </select>
+      </div>
+
+      <!-- Mode Selector -->
+      <div class="blender-tab-group">
+        <button id="btn-mode-lander" class="blender-tab active" data-tooltip="Mode A: First-Person Mast (2m)">
+          <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M3 12h3M18 12h3M12 3v3M12 18v3"></path>
+          </svg>
+          <span>Lander Mast</span>
+        </button>
+        <button id="btn-mode-overview" class="blender-tab" data-tooltip="Mode B: Orbital Overview">
+          <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-30 12 12)"></ellipse>
+          </svg>
+          <span>Orbital</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Center/Right Status & Battery Telemetry -->
+    <div class="header-right">
+      <!-- Battery SoC Widget -->
+      <div class="telemetry-box" data-tooltip="Lander Battery State-of-Charge">
+        <svg class="box-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect>
+          <line x1="20" y1="11" x2="20" y2="13"></line>
+        </svg>
+        <span class="box-label">BAT:</span>
+        <div class="battery-bar-wrap">
+          <div id="battery-bar-fill" class="battery-bar-fill" style="width: 100%;"></div>
+        </div>
+        <span id="battery-pct-text" class="box-value">100%</span>
+      </div>
+
+      <!-- Sun Status -->
+      <div id="badge-sun" class="telemetry-box status-ok" data-tooltip="Solar Array Illumination Line-of-Sight">
+        <span class="status-indicator-dot"></span>
+        <span id="sun-status-text" class="box-value">SUN: OK</span>
+      </div>
+
+      <!-- Earth Comms Status -->
+      <div id="badge-earth" class="telemetry-box status-ok" data-tooltip="Direct-to-Earth RF Line-of-Sight">
+        <span class="status-indicator-dot"></span>
+        <span id="earth-status-text" class="box-value">EARTH: OK</span>
+      </div>
+
+      <!-- Raycast Agreement -->
+      <div class="telemetry-box" data-tooltip="Off-Thread Raycast vs Engine Horizon Mask Agreement">
+        <span class="box-label">RAYCAST:</span>
+        <span id="raycast-agreement-text" class="box-value">99.8%</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Critical Failure Alert Banner -->
+  <div id="failure-banner" class="failure-banner" style="display: none;">
+    <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+      <line x1="12" y1="9" x2="12" y2="13"></line>
+      <line x1="12" y1="17" x2="12.01" y2="17"></line>
+    </svg>
+    <div class="failure-msg-wrap">
+      <span class="failure-title">MISSION FAILURE DETECTED</span>
+      <span id="failure-banner-text">Earth blocked for 41h starting 2027-01-06T04:00Z</span>
+    </div>
+  </div>
+
+  <!-- Blender-Style Vertical Tool Dock (Right Side) -->
+  <aside class="blender-tools-dock">
+    <!-- Horizon Mask Toggle -->
+    <button id="btn-mask-toggle" class="tool-btn active tooltip-trigger" data-tooltip="Horizon Mask Profile Line">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M2 18c4-6 8-6 12-1s6 3 8-4"></path>
+      </svg>
+    </button>
+
+    <div class="tool-separator"></div>
+
+    <!-- Terrain Layers -->
+    <button id="btn-layer-none" class="tool-btn active tooltip-trigger" data-tooltip="Layer: Natural Lunar Regolith">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"></path>
+      </svg>
+    </button>
+
+    <button id="btn-layer-slope" class="tool-btn tooltip-trigger" data-tooltip="Layer: Slope Hazard Analysis">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 20h18L14 4 9 13 6 10l-3 10z"></path>
+      </svg>
+    </button>
+
+    <button id="btn-layer-rock" class="tool-btn tooltip-trigger" data-tooltip="Layer: Diviner Rock Abundance">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="6" cy="18" r="3"></circle>
+        <circle cx="16" cy="16" r="4"></circle>
+        <circle cx="12" cy="7" r="3"></circle>
+      </svg>
+    </button>
+
+    <div class="tool-separator"></div>
+
+    <!-- Celestial Scale -->
+    <div class="scale-buttons-vertical">
+      <button id="btn-scale-1x" class="scale-btn active tooltip-trigger" data-tooltip="Scale: 1x True Physical Disk">1x</button>
+      <button id="btn-scale-3x" class="scale-btn tooltip-trigger" data-tooltip="Scale: 3x Magnified Disk">3x</button>
+      <button id="btn-scale-5x" class="scale-btn tooltip-trigger" data-tooltip="Scale: 5x Magnified Disk">5x</button>
+    </div>
+
+    <div class="tool-separator"></div>
+
+    <!-- Camera Presets -->
+    <button id="btn-look-sun" class="tool-btn tooltip-trigger" data-tooltip="View: Look at Sun">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+    </button>
+
+    <button id="btn-look-earth" class="tool-btn tooltip-trigger" data-tooltip="View: Look at Earth">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        <path d="M2 12h20"></path>
+      </svg>
+    </button>
+
+    <button id="btn-look-north" class="tool-btn tooltip-trigger" data-tooltip="View: Align Lunar North (0°)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
+      </svg>
+    </button>
+
+    <div class="tool-separator"></div>
+
+    <!-- Critical Failure Jump -->
+    <button id="btn-jump-failure" class="tool-btn danger-tool tooltip-trigger" data-tooltip="Jump to First Delay Failure">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+        <line x1="12" y1="9" x2="12" y2="13"></line>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+    </button>
+  </aside>
+
+  <!-- Blender-Style Bottom Timeline Strip -->
+  <div class="blender-timeline">
+    <!-- Header Row of Timeline -->
+    <div class="timeline-header-row">
+      <!-- Transport Buttons -->
+      <div class="transport-group">
+        <button id="btn-step-start" class="transport-btn tooltip-trigger" data-tooltip="First Frame (Hour 0)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="19 20 9 12 19 4 19 20"></polygon>
+            <line x1="5" y1="19" x2="5" y2="5"></line>
+          </svg>
+        </button>
+
+        <button id="btn-step-back" class="transport-btn tooltip-trigger" data-tooltip="Previous Frame (-1h)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="19 20 9 12 19 4 19 20"></polygon>
+          </svg>
+        </button>
+
+        <button id="btn-play-pause" class="transport-btn play-active tooltip-trigger" data-tooltip="Play / Pause Replay [Space]">
+          <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+        </button>
+
+        <button id="btn-step-fwd" class="transport-btn tooltip-trigger" data-tooltip="Next Frame (+1h)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 4 15 12 5 20 5 4"></polygon>
+          </svg>
+        </button>
+
+        <button id="btn-step-end" class="transport-btn tooltip-trigger" data-tooltip="Last Frame (Hour 719)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 4 15 12 5 20 5 4"></polygon>
+            <line x1="19" y1="5" x2="19" y2="19"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Numerical Frame / Time Inputs -->
+      <div class="frame-inputs">
+        <div class="field-item">
+          <label>Hour</label>
+          <input type="number" id="frame-input" class="blender-num-input" min="0" max="719" value="0" />
+        </div>
+        <div class="field-item">
+          <label>Start</label>
+          <input type="number" class="blender-num-input" value="0" readonly />
+        </div>
+        <div class="field-item">
+          <label>End</label>
+          <input type="number" class="blender-num-input" value="719" readonly />
+        </div>
+      </div>
+
+      <!-- Playback Speed -->
+      <div class="speed-control">
+        <label>Playback</label>
+        <select id="speed-selector" class="blender-select">
+          <option value="1">1 fps</option>
+          <option value="10" selected>10 fps</option>
+          <option value="50">50 fps</option>
+          <option value="200">200 fps</option>
+        </select>
+      </div>
+
+      <!-- Ephemeris Readout -->
+      <div class="timeline-ephemeris">
+        <span id="time-iso-text">2027-01-01T00:00:00Z</span>
+        <span class="ephem-values">
+          SUN: <b id="sun-coords-text">120.4°, 1.5°</b> · 
+          EARTH: <b id="earth-coords-text">18.0°, 1.4°</b>
+        </span>
+      </div>
+
+      <!-- Inline Overlay Legend -->
+      <div class="legend-inline">
+        <div id="legend-slope" class="legend-bar" style="display: none;">
+          <span>SLOPE</span>
+          <div class="legend-gradient slope"></div>
+          <span>0°–25°+</span>
+        </div>
+        <div id="legend-rock" class="legend-bar" style="display: none;">
+          <span>ROCK</span>
+          <div class="legend-gradient rock"></div>
+          <span>0%–25%+</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scrubber Ruler & Slider -->
+    <div class="timeline-scrubber-area">
+      <div class="frame-ticks">
+        <span>0</span>
+        <span>80</span>
+        <span>160</span>
+        <span>240</span>
+        <span>320</span>
+        <span>400</span>
+        <span>480</span>
+        <span>560</span>
+        <span>640</span>
+        <span>719</span>
+      </div>
+      <input type="range" id="time-slider" class="timeline-range" min="0" max="719" value="0" />
+    </div>
+  </div>
+
+  <!-- Blender-Style Bottom Footer Status Bar -->
+  <footer class="blender-footer-bar">
+    <div class="footer-left">
+      <span class="keycap-hint"><kbd>LMB Drag</kbd> Look View</span>
+      <span class="keycap-hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Surface Walk</span>
+      <span class="keycap-hint"><kbd>Shift</kbd> Sprint</span>
+      <span class="keycap-hint"><kbd>R</kbd> Reset Mast Position</span>
+      <span class="keycap-hint"><kbd>Space</kbd> Play / Pause</span>
+    </div>
+    <div class="footer-right">
+      <span id="data-provenance-text">DATA: SYNTHETIC PHASE-1 ENGINE · AUTO-DETECTING DATA_OUT/</span>
+    </div>
+  </footer>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
