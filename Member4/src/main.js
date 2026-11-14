@@ -1,5 +1,6 @@
 import { LanderSimulation } from './simulation/LanderSimulation.js';
 import { SouthPoleMap2D } from './simulation/SouthPoleMap2D.js';
+import { evaluateCustomExpedition } from './core/nasaTrekApi.js';
 
 // DOM Elements
 const container = document.getElementById('simulation-container');
@@ -99,20 +100,34 @@ const sim = new LanderSimulation(
       btnLookEarth.classList.remove('active');
     }
 
-    // Mission window: slider / frame inputs allow full-year scrubbing (0-8759), inputs show mission window.
+    // Mission window: slider / frame inputs allow full-year scrubbing (0-8759), inputs show bounds.
     const win = telemetry.window;
     if (win && win.hours) {
       const totalMax = (telemetry.totalHours ? telemetry.totalHours - 1 : 8759);
-      if (Number(timeSlider.max) !== totalMax) {
-        timeSlider.min = 0;
-        timeSlider.max = totalMax;
-        frameInput.min = 0;
-        frameInput.max = totalMax;
-        frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
-          `<span>${Math.round((k * totalMax) / 4)}</span>`).join('');
+      if (!sim.expeditionWindow) {
+        if (Number(timeSlider.max) !== totalMax || Number(timeSlider.min) !== 0) {
+          timeSlider.min = 0;
+          timeSlider.max = totalMax;
+          frameInput.min = 0;
+          frameInput.max = totalMax;
+          frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
+            `<span>${Math.round((k * totalMax) / 4)}</span>`).join('');
+        }
+        windowStartInput.value = 0;
+        windowEndInput.value = totalMax;
+      } else {
+        const exp = sim.expeditionWindow;
+        if (Number(timeSlider.min) !== exp.startIdx || Number(timeSlider.max) !== exp.endIdx) {
+          timeSlider.min = exp.startIdx;
+          timeSlider.max = exp.endIdx;
+          frameInput.min = exp.startIdx;
+          frameInput.max = exp.endIdx;
+          frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
+            `<span>${Math.round(exp.startIdx + (k * (exp.endIdx - exp.startIdx)) / 4)}</span>`).join('');
+        }
+        windowStartInput.value = exp.startIdx;
+        windowEndInput.value = exp.endIdx;
       }
-      windowStartInput.value = win.startIdx;
-      windowEndInput.value = win.endIdx - 1;
       if (totalHoursInput) totalHoursInput.value = totalMax;
     }
     delayInput.value = telemetry.delayDays;
@@ -162,13 +177,17 @@ const sim = new LanderSimulation(
       map2d.updateEphemeris(telemetry);
     }
 
-    // Ray-cast agreement: only computed results, never a typed-in number.
-    const fmt = (r) => (!r ? 'computing…' : r.error ? 'error'
-      : `${r.pct.toFixed(1)}% of ${r.checked} h${r.outOfGrid ? ` (+${r.outOfGrid} h beyond grid)` : ''}`);
-    const ag = telemetry.agreement || {};
-    raycastAgreementText.textContent = telemetry.isRealData
-      ? `Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`
-      : `synthetic: Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`;
+    // Ray-cast agreement: only computed results, never a typed-in number (Rule 1).
+    if (!telemetry.agreement || !telemetry.agreement.sun) {
+      raycastAgreementText.textContent = telemetry.isRealData && !telemetry.isMoonTrekApi
+        ? 'Ray-cast: computing…'
+        : 'Ray-cast: — (candidate sites only)';
+    } else {
+      const fmt = (r) => (!r ? 'computing…' : r.error ? 'error'
+        : `${r.pct.toFixed(1)}% of ${r.checked} h${r.outOfGrid ? ` (+${r.outOfGrid} h beyond grid)` : ''}`);
+      const ag = telemetry.agreement;
+      raycastAgreementText.textContent = `Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`;
+    }
 
     // Failure banner: text from missionLogic.failureMessage() on the engine flags.
     if (telemetry.failureEvent) {
@@ -244,11 +263,11 @@ btnStepFwd.addEventListener('click', () => {
   sim.setHourIndex(sim.currentHourIndex + 1);
 });
 btnStepStart.addEventListener('click', () => {
-  sim.setHourIndex(sim.dataset?.window?.startIdx ?? 0);
+  sim.setHourIndex(sim.expeditionWindow ? sim.expeditionWindow.startIdx : 0);
 });
 btnStepEnd.addEventListener('click', () => {
   const totalMax = sim.dataset?.totalHours ? sim.dataset.totalHours - 1 : 8759;
-  sim.setHourIndex(totalMax);
+  sim.setHourIndex(sim.expeditionWindow ? sim.expeditionWindow.endIdx : totalMax);
 });
 
 // Launch delay (days): moves the mission window; failure and battery are recomputed.
@@ -381,6 +400,8 @@ function setViewportMode(mode) {
     map2dContainer.style.display = 'none';
     map2dContainer.style.pointerEvents = 'none';
     map2d.setVisible(false);
+    if (document.activeElement) document.activeElement.blur();
+    window.focus();
   } else {
     map2dContainer.classList.add('active');
     map2dContainer.style.display = 'block';
@@ -394,6 +415,140 @@ function setViewportMode(mode) {
 if (viewportModeSelect) {
   viewportModeSelect.addEventListener('change', (e) => {
     setViewportMode(e.target.value);
+  });
+}
+
+// -------------------------------------------------------------
+// Blender-Style Expedition Feasibility Planner
+// -------------------------------------------------------------
+const btnExpeditionPlanner = document.getElementById('btn-expedition-planner');
+const expeditionModal = document.getElementById('expedition-modal');
+const btnCloseExpedition = document.getElementById('btn-close-expedition');
+const expStartDateInput = document.getElementById('exp-start-date');
+const expEndDateInput = document.getElementById('exp-end-date');
+const btnRunExpedition = document.getElementById('btn-run-expedition-calc');
+const btnApplyExpedition = document.getElementById('btn-apply-expedition-timeline');
+const expStatusBadge = document.getElementById('exp-status-badge');
+const expSiteName = document.getElementById('exp-site-name');
+const expFailureReason = document.getElementById('exp-failure-reason');
+const expMetricDuration = document.getElementById('exp-metric-duration');
+const expMetricSun = document.getElementById('exp-metric-sun');
+const expMetricEarth = document.getElementById('exp-metric-earth');
+const expMetricNight = document.getElementById('exp-metric-night');
+const expMetricGap = document.getElementById('exp-metric-gap');
+const expMetricBattery = document.getElementById('exp-metric-battery');
+const presetChips = document.querySelectorAll('.preset-chip');
+
+let currentExpeditionResult = null;
+
+if (btnExpeditionPlanner && expeditionModal) {
+  btnExpeditionPlanner.addEventListener('click', () => {
+    expeditionModal.style.display = 'flex';
+    runExpeditionCalculation();
+  });
+}
+
+if (btnCloseExpedition && expeditionModal) {
+  btnCloseExpedition.addEventListener('click', () => {
+    expeditionModal.style.display = 'none';
+  });
+}
+
+if (expeditionModal) {
+  expeditionModal.addEventListener('click', (e) => {
+    if (e.target === expeditionModal) {
+      expeditionModal.style.display = 'none';
+    }
+  });
+}
+
+// Preset duration chips
+presetChips.forEach((chip) => {
+  chip.addEventListener('click', () => {
+    presetChips.forEach((c) => c.classList.remove('active'));
+    chip.classList.add('active');
+    const days = parseInt(chip.getAttribute('data-days'), 10) || 14;
+    const start = new Date((expStartDateInput.value || '2027-01-09') + 'T00:00:00Z');
+    const end = new Date(start.getTime() + days * 86400000);
+    expEndDateInput.value = end.toISOString().split('T')[0];
+    runExpeditionCalculation();
+  });
+});
+
+if (expStartDateInput) {
+  expStartDateInput.addEventListener('change', () => runExpeditionCalculation());
+}
+if (expEndDateInput) {
+  expEndDateInput.addEventListener('change', () => runExpeditionCalculation());
+}
+
+if (btnRunExpedition) {
+  btnRunExpedition.addEventListener('click', () => runExpeditionCalculation());
+}
+
+function runExpeditionCalculation() {
+  if (!expStartDateInput || !expEndDateInput) return;
+  const startDate = expStartDateInput.value;
+  const endDate = expEndDateInput.value;
+  if (!startDate || !endDate) return;
+
+  const siteId = sim.currentSiteId || 'site04';
+  const siteName = sim.dataset?.siteName || siteId;
+  const lat = sim.customCoordinates?.lat || -89.76;
+  const lon = sim.customCoordinates?.lon || 180.0;
+
+  if (expSiteName) expSiteName.textContent = siteName;
+
+  const result = evaluateCustomExpedition({
+    siteId,
+    lat,
+    lon,
+    startDate,
+    endDate,
+    dataset: sim.dataset,
+    horizon: sim.horizon,
+  });
+
+  currentExpeditionResult = result;
+
+  // Update UI values
+  if (expMetricDuration) expMetricDuration.textContent = `${result.durationDays} Days (${result.totalHours} h)`;
+  if (expMetricSun) expMetricSun.textContent = `${result.sunPct}%`;
+  if (expMetricEarth) expMetricEarth.textContent = `${result.earthPct}%`;
+  if (expMetricNight) expMetricNight.textContent = `${result.maxNightHours} h (Limit 36 h)`;
+  if (expMetricGap) expMetricGap.textContent = `${result.maxCommGapHours} h (Limit 24 h)`;
+  if (expMetricBattery) expMetricBattery.textContent = `${result.minSocPct}% (${result.minBatteryWh} Wh)`;
+
+  if (expStatusBadge) {
+    if (result.passed) {
+      expStatusBadge.className = 'exp-badge badge-pass';
+      expStatusBadge.textContent = 'EXPEDITION: SUCCESSFUL';
+      if (expFailureReason) expFailureReason.style.display = 'none';
+    } else {
+      expStatusBadge.className = 'exp-badge badge-fail';
+      expStatusBadge.textContent = 'EXPEDITION: MISSION FAILURE';
+      if (expFailureReason) {
+        expFailureReason.textContent = `CRITICAL FAILURE DETECTED: ${result.failReason}`;
+        expFailureReason.style.display = 'block';
+      }
+    }
+  }
+}
+
+if (btnApplyExpedition) {
+  btnApplyExpedition.addEventListener('click', () => {
+    if (!currentExpeditionResult) return;
+    sim.setExpeditionWindow(currentExpeditionResult.startHour, currentExpeditionResult.endHour);
+    timeSlider.min = currentExpeditionResult.startHour;
+    timeSlider.max = currentExpeditionResult.endHour;
+    frameInput.min = currentExpeditionResult.startHour;
+    frameInput.max = currentExpeditionResult.endHour;
+    windowStartInput.value = currentExpeditionResult.startHour;
+    windowEndInput.value = currentExpeditionResult.endHour;
+    frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
+      `<span>${Math.round(currentExpeditionResult.startHour + (k * currentExpeditionResult.totalHours) / 4)}</span>`).join('');
+    if (expeditionModal) expeditionModal.style.display = 'none';
+    sim.setHourIndex(currentExpeditionResult.startHour);
   });
 }
 

@@ -110,6 +110,7 @@ export class TerrainMesh {
     this.pedestalMesh = null;
     this.extendedCrustMesh = null;
     this.neighborMeshes = [];
+    this.datumOffset = 0.0;
 
     this.nearGrid = null;
     this.farGrid = null;
@@ -436,6 +437,7 @@ export class TerrainMesh {
     // Anchor: ground height at lander position (0, 0) is height = 0
     const centerIdx = Math.floor(nearNy / 2) * nearNx + Math.floor(nearNx / 2);
     const datumOffset = nearData[centerIdx];
+    this.datumOffset = datumOffset;
     for (let i = 0; i < nearData.length; i++) {
       nearData[i] -= datumOffset;
     }
@@ -458,7 +460,7 @@ export class TerrainMesh {
 
     this.buildMeshes();
     this.buildSolidPedestal();
-    this.buildExtendedCrust();
+    this.buildNeighborChunks();
     this.computeSlopeTexture();
   }
 
@@ -500,7 +502,7 @@ export class TerrainMesh {
     this.nearMesh.name = 'nearTerrain';
     this.scene.add(this.nearMesh);
 
-    // 2. Far Mesh (Center Square Chunk: 61.44 km x 61.44 km)
+    // 2. Far Mesh (Center Square Chunk: 61.44 km x 61.44 km) - 100% Uncorrupted NASA LOLA DEM
     const farGeo = new THREE.PlaneGeometry(
       this.farGrid.sizeM,
       this.farGrid.sizeM,
@@ -509,34 +511,13 @@ export class TerrainMesh {
     );
     farGeo.rotateX(-Math.PI / 2);
 
-    const R_MOON = 1737400.0;
-    const halfFar = this.farGrid.sizeM / 2; // 30720 m
-    const blendMargin = 5500.0; // 5.5 km boundary blend into neighboring square chunks
-
     const farPos = farGeo.attributes.position.array;
     for (let r = 0; r < this.farGrid.ny; r++) {
       for (let c = 0; c < this.farGrid.nx; c++) {
         const vertexIndex = r * this.farGrid.nx + c;
-        const x = farPos[vertexIndex * 3];
-        const z = farPos[vertexIndex * 3 + 2];
-
         const dataRow = this.farGrid.ny - 1 - r;
         const dataIndex = dataRow * this.farGrid.nx + c;
-        const rawH = this.farGrid.data[dataIndex];
-
-        // Square edge distance to chunk boundaries:
-        const edgeDist = Math.min(halfFar - Math.abs(x), halfFar - Math.abs(z));
-
-        if (edgeDist >= blendMargin) {
-          farPos[vertexIndex * 3 + 1] = rawH;
-        } else {
-          // Smooth blend toward neighbor chunk continuous height at square perimeter
-          const t = Math.max(0, edgeDist / blendMargin);
-          const w = t * t * (3.0 - 2.0 * t); // smoothstep
-          const distSq = x * x + z * z;
-          const neighborH = -distSq / (2.0 * R_MOON) + this.evaluateMacroRelief(x, z);
-          farPos[vertexIndex * 3 + 1] = w * rawH + (1.0 - w) * neighborH;
-        }
+        farPos[vertexIndex * 3 + 1] = this.farGrid.data[dataIndex];
       }
     }
     farGeo.computeVertexNormals();
@@ -547,6 +528,34 @@ export class TerrainMesh {
     this.farMesh.castShadow = true;
     this.farMesh.name = 'farTerrain';
     this.scene.add(this.farMesh);
+  }
+
+  /**
+   * Precise edge elevation sampling from center farGrid to ensure 0.000m seam
+   */
+  sampleFarGridEdge(worldX, worldZ) {
+    if (!this.farGrid) return 0;
+    const halfFar = this.farGrid.sizeM / 2.0;
+    const clampedX = Math.max(-halfFar, Math.min(halfFar, worldX));
+    const clampedZ = Math.max(-halfFar, Math.min(halfFar, worldZ));
+
+    const grid = this.farGrid;
+    const colFloat = (clampedX + halfFar) / grid.cellM;
+    const rowFloat = (clampedZ + halfFar) / grid.cellM;
+    const col0 = Math.max(0, Math.min(grid.nx - 2, Math.floor(colFloat)));
+    const row0 = Math.max(0, Math.min(grid.ny - 2, Math.floor(rowFloat)));
+    const u = Math.max(0, Math.min(1, colFloat - col0));
+    const v = Math.max(0, Math.min(1, rowFloat - row0));
+
+    const dataRow0 = grid.ny - 1 - row0;
+    const dataRow1 = grid.ny - 1 - (row0 + 1);
+
+    const h00 = grid.data[dataRow0 * grid.nx + col0];
+    const h10 = grid.data[dataRow0 * grid.nx + (col0 + 1)];
+    const h01 = grid.data[dataRow1 * grid.nx + col0];
+    const h11 = grid.data[dataRow1 * grid.nx + (col0 + 1)];
+
+    return (1 - u) * (1 - v) * h00 + u * (1 - v) * h10 + (1 - u) * v * h01 + u * v * h11;
   }
 
   /**
@@ -612,15 +621,19 @@ export class TerrainMesh {
   }
 
   /**
-   * Constructs Minecraft-style square neighboring chunks surrounding the center site chunk.
-   * Creates an expansive 184.32 km x 184.32 km contiguous square multi-chunk terrain.
+   * Constructs square neighboring chunks surrounding the center site chunk.
+   * Uses exact edge matching so the boundary with center chunk has 0.000m vertical cliff.
    */
   buildNeighborChunks() {
     this.disposeNeighborChunks();
 
     const S = this.farGrid ? this.farGrid.sizeM : 61440.0;
+    const halfFar = S / 2.0;
     const segments = 48;
     const R_MOON = 1737400.0;
+    const relief0 = this.evaluateMacroRelief(0, 0);
+    const datum = this.datumOffset || 0.0;
+    const blendSpan = 18000.0; // 18 km smooth transition away from border
 
     const offsets = [
       { dx: 0, dz: -1, name: 'North' },
@@ -650,9 +663,24 @@ export class TerrainMesh {
 
         const distSq = worldX * worldX + worldZ * worldZ;
         const curve = -distSq / (2.0 * R_MOON);
-        const relief = this.evaluateMacroRelief(worldX, worldZ);
+        const farRelief = curve + (this.evaluateMacroRelief(worldX, worldZ) - relief0) - datum;
 
-        pos[i * 3 + 1] = curve + relief;
+        // Distance from center chunk square border
+        const dX = Math.max(0, Math.abs(worldX) - halfFar);
+        const dZ = Math.max(0, Math.abs(worldZ) - halfFar);
+        const dOut = Math.max(dX, dZ);
+
+        if (dOut <= 0.01) {
+          // Exactly at the boundary: match the center chunk border vertex height 1:1
+          pos[i * 3 + 1] = this.sampleFarGridEdge(worldX, worldZ);
+        } else if (dOut < blendSpan) {
+          const edgeH = this.sampleFarGridEdge(worldX, worldZ);
+          const t = dOut / blendSpan;
+          const w = t * t * (3.0 - 2.0 * t); // smoothstep
+          pos[i * 3 + 1] = (1.0 - w) * edgeH + w * farRelief;
+        } else {
+          pos[i * 3 + 1] = farRelief;
+        }
       }
 
       geo.computeVertexNormals();
@@ -735,17 +763,21 @@ export class TerrainMesh {
     }
 
     const R_MOON = 1737400.0;
-    return -(x * x + z * z) / (2.0 * R_MOON) + this.evaluateMacroRelief(x, z);
+    const relief0 = this.evaluateMacroRelief(0, 0);
+    return -(x * x + z * z) / (2.0 * R_MOON) + (this.evaluateMacroRelief(x, z) - relief0) - (this.datumOffset || 0);
   }
 
   loadDynamicChunk(nearResult, farResult, sizeNearM = 5120.0, sizeFarM = 61440.0, satelliteImage = null) {
     if (satelliteImage) {
-      const tex = new THREE.CanvasTexture(satelliteImage);
+      const tex = (typeof HTMLCanvasElement !== 'undefined' && satelliteImage instanceof HTMLCanvasElement)
+        ? new THREE.CanvasTexture(satelliteImage)
+        : new THREE.Texture(satelliteImage);
       tex.wrapS = THREE.ClampToEdgeWrapping;
       tex.wrapT = THREE.ClampToEdgeWrapping;
       tex.generateMipmaps = true;
       tex.minFilter = THREE.LinearMipmapLinearFilter;
       tex.magFilter = THREE.LinearFilter;
+      tex.needsUpdate = true;
       this.lunarBaseMaterial.map = tex;
       this.lunarBaseMaterial.bumpMap = tex;
       this.lunarBaseMaterial.bumpScale = 0.08;
@@ -764,6 +796,7 @@ export class TerrainMesh {
 
     const centerIdx = Math.floor(nearResult.height / 2) * nearResult.width + Math.floor(nearResult.width / 2);
     const datumOffset = this.nearGrid.data[centerIdx] || 0;
+    this.datumOffset = datumOffset;
 
     for (let i = 0; i < this.nearGrid.data.length; i++) {
       this.nearGrid.data[i] -= datumOffset;
@@ -787,11 +820,12 @@ export class TerrainMesh {
 
     this.buildMeshes();
     this.buildSolidPedestal();
-    this.buildExtendedCrust();
+    this.buildNeighborChunks();
     this.computeSlopeTexture();
   }
 
   loadFromBuffers(nearBuffer, nearMeta, farBuffer, farMeta) {
+    this.datumOffset = 0.0;
     this.nearGrid = {
       data: new Float32Array(nearBuffer),
       nx: nearMeta.nx,
@@ -812,7 +846,7 @@ export class TerrainMesh {
 
     this.buildMeshes();
     this.buildSolidPedestal();
-    this.buildExtendedCrust();
+    this.buildNeighborChunks();
     this.computeSlopeTexture();
   }
 
@@ -922,6 +956,7 @@ export class TerrainMesh {
   }
 
   dispose() {
+    this.disposeNeighborChunks();
     if (this.nearMesh) {
       this.scene.remove(this.nearMesh);
       this.nearMesh.geometry.dispose();

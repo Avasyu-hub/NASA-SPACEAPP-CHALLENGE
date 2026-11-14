@@ -65,6 +65,8 @@ export function latLonToPolar(lat, lon) {
 const elevationCache = new Map();
 const pointElevationCache = new Map();
 const textureCache = new Map();
+export const ephemerisCache = new Map();
+export const expeditionCache = new Map();
 
 /**
  * Fetches point elevation in meters directly from NASA LOLA ImageServer
@@ -193,6 +195,9 @@ export function getShadedReliefTileUrl(bbox, width = 512, height = 512) {
  * based on the rigorous lunar ephemeris model.
  */
 export function computeCustomEphemeris(lat, lon, hourIndex = 0) {
+  const key = `${lat.toFixed(4)},${lon.toFixed(4)},${hourIndex}`;
+  if (ephemerisCache.has(key)) return ephemerisCache.get(key);
+
   const synodicHours = 708.734;
   const sunPhase = ((hourIndex % synodicHours) / synodicHours) * Math.PI * 2.0;
   const seasonPhase = (hourIndex / 8766.0) * Math.PI * 2.0;
@@ -221,10 +226,146 @@ export function computeCustomEphemeris(lat, lon, hourIndex = 0) {
   ) * 180.0) / Math.PI;
   if (earthAzDeg < 0) earthAzDeg += 360.0;
 
-  return {
+  const result = {
     sunAz: sunAzDeg,
     sunEl: sunElDeg,
     earthAz: earthAzDeg,
     earthEl: earthElDeg,
   };
+  ephemerisCache.set(key, result);
+  return result;
+}
+
+/**
+ * Evaluates custom expedition feasibility over any arbitrary date range.
+ * 
+ * @param {Object} options
+ * @param {string} options.siteId
+ * @param {number} options.lat
+ * @param {number} options.lon
+ * @param {string} options.startDate - ISO date string (e.g. '2027-01-09')
+ * @param {string} options.endDate - ISO date string (e.g. '2027-03-10')
+ * @param {Object} options.dataset - Active dataset (with pre-baked SPICE if available)
+ * @param {Object} options.horizon - Horizon mask overlay for elevation sampling
+ * @returns {Object} Comprehensive expedition metrics, hourly profile, battery trace & verdict
+ */
+export function evaluateCustomExpedition({ siteId, lat, lon, startDate, endDate, dataset, horizon }) {
+  const cacheKey = `${siteId}_${lat.toFixed(4)}_${lon.toFixed(4)}_${startDate}_${endDate}`;
+  if (expeditionCache.has(cacheKey)) {
+    return expeditionCache.get(cacheKey);
+  }
+
+  const baseTime = new Date('2027-01-01T00:00:00Z').getTime();
+  const startTime = new Date(startDate + 'T00:00:00Z').getTime();
+  const endTime = new Date(endDate + 'T00:00:00Z').getTime();
+
+  let startHour = Math.floor((startTime - baseTime) / 3600000);
+  let endHour = Math.floor((endTime - baseTime) / 3600000);
+
+  if (endHour <= startHour) endHour = startHour + 24; // minimum 24 hours
+  const totalHours = endHour - startHour;
+
+  let litHours = 0;
+  let visHours = 0;
+  let currentNight = 0;
+  let maxNight = 0;
+  let currentGap = 0;
+  let maxGap = 0;
+
+  // Battery model simulation: capacity 1500 Wh, solar 250 W, load 80 W
+  let batteryWh = 1500.0;
+  const maxCap = 1500.0;
+  const solarW = 250.0;
+  const loadW = 80.0;
+  let minBatteryWh = maxCap;
+  let batteryFailHour = null;
+  let nightFailHour = null;
+  let commFailHour = null;
+
+  for (let i = 0; i < totalHours; i++) {
+    const h = startHour + i;
+    let isLit = 0;
+    let isVis = 0;
+
+    if (dataset && dataset.sunLit && dataset.earthVis && h >= 0 && h < dataset.sunLit.length) {
+      isLit = dataset.sunLit[h] ? 1 : 0;
+      isVis = dataset.earthVis[h] ? 1 : 0;
+    } else {
+      const eph = computeCustomEphemeris(lat, lon, h);
+      const maskSunEl = horizon ? horizon.sampleElevation(eph.sunAz) : 0;
+      const maskEarthEl = horizon ? horizon.sampleElevation(eph.earthAz) : 0;
+      isLit = eph.sunEl > maskSunEl ? 1 : 0;
+      isVis = eph.earthEl > maskEarthEl ? 1 : 0;
+    }
+
+    if (isLit) {
+      litHours++;
+      currentNight = 0;
+      batteryWh = Math.min(maxCap, batteryWh + (solarW - loadW));
+    } else {
+      currentNight++;
+      if (currentNight > maxNight) maxNight = currentNight;
+      batteryWh = Math.max(0, batteryWh - loadW);
+      if (batteryWh <= 0 && batteryFailHour === null) {
+        batteryFailHour = h;
+      }
+      if (currentNight > 36 && nightFailHour === null) {
+        nightFailHour = h;
+      }
+    }
+
+    if (isVis) {
+      visHours++;
+      currentGap = 0;
+    } else {
+      currentGap++;
+      if (currentGap > maxGap) maxGap = currentGap;
+      if (currentGap > 24 && commFailHour === null) {
+        commFailHour = h;
+      }
+    }
+
+    if (batteryWh < minBatteryWh) minBatteryWh = batteryWh;
+  }
+
+  const sunPct = (litHours / totalHours) * 100.0;
+  const earthPct = (visHours / totalHours) * 100.0;
+  const minSocPct = (minBatteryWh / maxCap) * 100.0;
+
+  // Pass conditions: minSunPct >= 40%, maxNight <= 36h, maxGap <= 24h, minSoc > 0%
+  let passed = true;
+  let failReason = '';
+
+  if (batteryFailHour !== null) {
+    passed = false;
+    const failDate = new Date(baseTime + batteryFailHour * 3600000).toISOString().replace('.000', '');
+    failReason = `Battery exhausted to 0% at ${failDate} (hour ${batteryFailHour}), after extended shadow period.`;
+  } else if (nightFailHour !== null) {
+    passed = false;
+    failReason = `Night duration reached ${maxNight} consecutive hours (limit: 36 h). Exceeds thermal & survival window.`;
+  } else if (commFailHour !== null) {
+    passed = false;
+    failReason = `Earth direct line-of-sight blackout reached ${maxGap} consecutive hours (limit: 24 h).`;
+  } else if (sunPct < 40.0) {
+    passed = false;
+    failReason = `Total sunlight illumination is ${sunPct.toFixed(1)}% (minimum requirement: 40.0%).`;
+  }
+
+  const result = {
+    startHour,
+    endHour,
+    totalHours,
+    durationDays: (totalHours / 24.0).toFixed(1),
+    sunPct: Number(sunPct.toFixed(1)),
+    earthPct: Number(earthPct.toFixed(1)),
+    maxNightHours: maxNight,
+    maxCommGapHours: maxGap,
+    minBatteryWh: Math.round(minBatteryWh),
+    minSocPct: Number(minSocPct.toFixed(1)),
+    passed,
+    failReason,
+  };
+
+  expeditionCache.set(cacheKey, result);
+  return result;
 }

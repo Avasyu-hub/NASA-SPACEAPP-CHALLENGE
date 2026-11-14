@@ -13,7 +13,7 @@ import { bodyDirection } from '../core/math.js';
 export class CelestialBodies {
   constructor(scene) {
     this.scene = scene;
-    this.skyRadius = 70000.0;
+    this.skyRadius = 600000.0;
     this.exaggeration = 1.0;
 
     this.sunAz = 0.0;
@@ -35,7 +35,7 @@ export class CelestialBodies {
     const positions = new Float32Array(starCount * 3);
     const colors = new Float32Array(starCount * 3);
 
-    const starRadius = 140000.0;
+    const starRadius = 800000.0;
 
     const spectralColors = [
       new THREE.Color(0xdce6ff),
@@ -66,11 +66,13 @@ export class CelestialBodies {
     starGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     const starMat = new THREE.PointsMaterial({
-      size: 2.0,
+      size: 2.2,
       vertexColors: true,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.90,
       sizeAttenuation: false,
+      depthWrite: false,
+      depthTest: true,
     });
 
     this.starPoints = new THREE.Points(starGeo, starMat);
@@ -81,7 +83,7 @@ export class CelestialBodies {
     this.sunGroup = new THREE.Group();
     this.scene.add(this.sunGroup);
 
-    this.sunBaseRadius = 324.0;
+    this.sunBaseRadius = 2775.0;
 
     // Blinding white core solar disk
     this.sunGeo = new THREE.SphereGeometry(this.sunBaseRadius, 64, 64);
@@ -109,7 +111,7 @@ export class CelestialBodies {
     this.sunLight.shadow.mapSize.width = 2048;
     this.sunLight.shadow.mapSize.height = 2048;
     this.sunLight.shadow.camera.near = 100;
-    this.sunLight.shadow.camera.far = 150000;
+    this.sunLight.shadow.camera.far = 250000;
 
     const d = 4200;
     this.sunLight.shadow.camera.left = -d;
@@ -149,7 +151,7 @@ export class CelestialBodies {
     this.earthGroup = new THREE.Group();
     this.scene.add(this.earthGroup);
 
-    this.earthBaseRadius = 1160.0;
+    this.earthBaseRadius = 9940.0;
 
     const earthTexture = this.generateEarthTexture();
 
@@ -423,7 +425,7 @@ export class CelestialBodies {
     const sunPos = sunDir.clone().multiplyScalar(this.skyRadius);
     this.sunGroup.position.copy(sunPos);
 
-    this.sunLight.position.copy(sunPos);
+    this.sunLight.position.copy(sunDir.clone().multiplyScalar(100000.0));
     this.sunLight.target.position.set(0, 0, 0);
     this.sunLight.target.updateMatrixWorld();
 
@@ -434,6 +436,12 @@ export class CelestialBodies {
 
     // Earth arrow direction
     this.earthArrow.setDirection(earthDir);
+  }
+
+  updateStarfield(cameraPos) {
+    if (this.starPoints && cameraPos) {
+      this.starPoints.position.copy(cameraPos);
+    }
   }
 
   setExaggeration(mult) {

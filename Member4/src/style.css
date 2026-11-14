@@ -1023,3 +1023,304 @@ kbd {
   color: #38bdf8;
 }
 
+/* ============================================================
+   Blender-Style Expedition & Mission Planner Modal
+   ============================================================ */
+.blender-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(10, 12, 16, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.blender-modal-card.expedition-card {
+  width: 580px;
+  max-width: 95vw;
+  background: var(--blender-panel-bg);
+  border: 1px solid var(--blender-border);
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalPop 0.18s ease-out;
+}
+
+@keyframes modalPop {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-header {
+  height: 38px;
+  background: var(--blender-panel-header);
+  border-bottom: 1px solid var(--blender-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+}
+
+.modal-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--blender-text-bright);
+}
+
+.modal-title-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--blender-accent);
+}
+
+.modal-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  color: var(--blender-text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: all 0.1s;
+}
+
+.modal-close-btn:hover {
+  background: var(--blender-btn-hover);
+  color: var(--blender-text-bright);
+}
+
+.modal-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-desc {
+  font-size: 11px;
+  color: var(--blender-text-dim);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.expedition-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-group label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--blender-text-muted);
+  letter-spacing: 0.4px;
+}
+
+.blender-date-input {
+  height: 28px;
+  background: var(--blender-panel-sub);
+  border: 1px solid var(--blender-border);
+  border-radius: 3px;
+  color: var(--blender-text-bright);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 0 8px;
+  outline: none;
+  color-scheme: dark;
+}
+
+.blender-date-input:focus {
+  border-color: var(--blender-blue);
+}
+
+.expedition-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--blender-text-dim);
+}
+
+.preset-chip {
+  background: var(--blender-panel-sub);
+  border: 1px solid var(--blender-border);
+  color: var(--blender-text-dim);
+  border-radius: 3px;
+  font-size: 10px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.preset-chip:hover {
+  background: var(--blender-btn-hover);
+  color: var(--blender-text-bright);
+}
+
+.preset-chip.active {
+  background: rgba(43, 131, 234, 0.18);
+  border-color: var(--blender-blue);
+  color: var(--blender-text-bright);
+  font-weight: 500;
+}
+
+.primary-action {
+  height: 32px;
+  background: var(--blender-blue);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.primary-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.primary-action:hover {
+  background: #3991f3;
+}
+
+.expedition-results-card {
+  background: var(--blender-panel-sub);
+  border: 1px solid var(--blender-border);
+  border-radius: 4px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.exp-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.exp-badge.badge-pass {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.exp-badge.badge-fail {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.exp-site-tag {
+  font-size: 10px;
+  color: var(--blender-text-muted);
+  font-family: var(--font-mono);
+}
+
+.exp-failure-alert {
+  background: rgba(239, 68, 68, 0.12);
+  border-left: 3px solid #ef4444;
+  padding: 6px 10px;
+  font-size: 10px;
+  color: #fca5a5;
+  line-height: 1.4;
+}
+
+.exp-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.exp-metric-cell {
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.exp-metric-cell .metric-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--blender-text-dim);
+  letter-spacing: 0.4px;
+}
+
+.exp-metric-cell .metric-val {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--blender-text-bright);
+}
+
+.highlight-sun { color: #facc15 !important; }
+.highlight-earth { color: #38bdf8 !important; }
+.highlight-bat { color: #4ade80 !important; }
+
+.apply-btn {
+  height: 30px;
+  background: var(--blender-btn-bg);
+  border: 1px solid var(--blender-border);
+  color: var(--blender-text-bright);
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.12s;
+}
+
+.apply-btn svg {
+  width: 13px;
+  height: 13px;
+  color: var(--blender-accent);
+}
+
+.apply-btn:hover {
+  background: var(--blender-btn-hover);
+  border-color: var(--blender-accent);
+}
+

@@ -11,8 +11,8 @@ import { fetchElevationChunk, fetchSatelliteTexture, computeCustomEphemeris } fr
 // One implementation of the mission rules, shared with the dashboard (M1, web/src/core).
 import { evaluate, failureMessage, batteryTrace } from '../../../web/src/core/missionLogic.js';
 
-// Mission defaults (goal.md 8.1 / 8.2 examples, addendum section 6). User inputs, not NASA values.
-const DEFAULT_MISSION = { delayDays: 0, durationDays: 14 };
+// Mission defaults (WORKPLAN.md Section 12 nominal landing date: 9 Jan 2027). User inputs, not NASA values.
+const DEFAULT_MISSION = { nominalLandingDate: '2027-01-09T00:00:00Z', delayDays: 0, durationDays: 14 };
 const DEFAULT_REQUIREMENTS = {
   minSunPct: 40,
   maxNightH: 36,
@@ -55,6 +55,10 @@ export class LanderSimulation {
       KeyA: false,
       KeyS: false,
       KeyD: false,
+      ArrowUp: false,
+      ArrowDown: false,
+      ArrowLeft: false,
+      ArrowRight: false,
       ShiftLeft: false,
       ShiftRight: false,
     };
@@ -88,7 +92,7 @@ export class LanderSimulation {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
 
-    this.camera = new THREE.PerspectiveCamera(72, width / height, 0.1, 250000);
+    this.camera = new THREE.PerspectiveCamera(72, width / height, 0.1, 1500000);
     this.camera.position.set(0, 2.0, 0);
     this.camera.rotation.order = 'YXZ';
 
@@ -113,8 +117,9 @@ export class LanderSimulation {
     this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbitControls.enableDamping = true;
     this.orbitControls.dampingFactor = 0.05;
-    this.orbitControls.maxDistance = 35000;
-    this.orbitControls.minDistance = 50;
+    this.orbitControls.maxDistance = 500000;
+    this.orbitControls.minDistance = 2.0;
+    this.orbitControls.zoomSpeed = 1.2;
     this.orbitControls.maxPolarAngle = Math.PI / 2 - 0.01;
     this.orbitControls.enabled = false;
 
@@ -181,11 +186,15 @@ export class LanderSimulation {
       }
     });
 
-    // WASD Keyboard Surface Walking
+    // WASD & Arrow Keyboard Surface Walking
     window.addEventListener('keydown', (e) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
       if (e.code in this.keys) {
         this.keys[e.code] = true;
         this.trackingTarget = null; // User moving breaks tracking lock
+        if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+          e.preventDefault();
+        }
       }
       if (e.code === 'KeyR') {
         this.resetLanderPosition();
@@ -244,7 +253,8 @@ export class LanderSimulation {
   evaluateMission() {
     const d = this.dataset;
     const results = { site: d.siteId, t: d.timestamps, sun_lit: d.sunLit, earth_vis: d.earthVis };
-    const ev = evaluate(results, { startDate: d.timestamps[0], ...this.mission }, this.requirements);
+    const nominalDate = this.mission.nominalLandingDate || '2027-01-09T00:00:00Z';
+    const ev = evaluate(results, { startDate: nominalDate, ...this.mission }, this.requirements);
     d.window = ev.window;
     d.metrics = ev.metrics;
     const f = ev.failure;
@@ -269,6 +279,7 @@ export class LanderSimulation {
 
   async loadDataset(siteId = 'site04') {
     this.currentSiteId = siteId;
+    this.customCoordinates = null;
     this.onLoadingStateChange(true, `Loading Candidate Site ${siteId.toUpperCase()}`);
 
     try {
@@ -405,14 +416,12 @@ export class LanderSimulation {
       earthEl,
       sunLit,
       earthVis,
-      isRealData: loadedFromApi,
+      isRealData: false, // Rule 1: Custom off-grid topocentric exploration chunks are not certified SPICE sites
       isMoonTrekApi: loadedFromApi,
     };
 
-    this.agreement = {
-      sun: { pct: 99.8, checked: totalH },
-      earth: { pct: 100.0, checked: totalH },
-    };
+    // Rule 1: Never hardcode ray-cast agreement percentages. Null displays "— (candidate sites only)".
+    this.agreement = null;
 
     this.evaluateMission();
 
@@ -428,38 +437,21 @@ export class LanderSimulation {
   }
 
   sampleGroundHeight(x, z) {
-    if (!this.terrain.nearGrid) return 0;
-    const grid = this.terrain.nearGrid;
-
-    const gridY = -z;
-    const colFloat = (x + grid.sizeM / 2) / grid.cellM;
-    const rowFloat = (gridY + grid.sizeM / 2) / grid.cellM;
-
-    const col0 = Math.floor(colFloat);
-    const col1 = Math.min(col0 + 1, grid.nx - 1);
-    const row0 = Math.floor(rowFloat);
-    const row1 = Math.min(row0 + 1, grid.ny - 1);
-
-    if (col0 < 0 || col0 >= grid.nx || row0 < 0 || row0 >= grid.ny) return 0;
-
-    const u = colFloat - col0;
-    const v = rowFloat - row0;
-
-    const h00 = grid.data[row0 * grid.nx + col0];
-    const h10 = grid.data[row0 * grid.nx + col1];
-    const h01 = grid.data[row1 * grid.nx + col0];
-    const h11 = grid.data[row1 * grid.nx + col1];
-
-    return (1 - u) * (1 - v) * h00 + u * (1 - v) * h10 + (1 - u) * v * h01 + u * v * h11;
+    if (this.terrain && this.terrain.sampleHeightAt) {
+      return this.terrain.sampleHeightAt(x, z);
+    }
+    return 0;
   }
 
   resetLanderPosition() {
     this.landerX = 0;
     this.landerZ = 0;
     const groundH = this.sampleGroundHeight(0, 0);
-    this.camera.position.set(0, groundH + 2.0, 0);
-    this.yaw = 0.0;
-    this.pitch = 0.02;
+    if (this.mode === 'lander') {
+      this.camera.position.set(0, groundH + 2.0, 0);
+      this.yaw = 0.0;
+      this.pitch = 0.02;
+    }
     this.trackingTarget = null;
     if (this.dataset && this.dataset.sunAz && this.dataset.sunAz[this.currentHourIndex] !== undefined) {
       this.yaw = (-this.dataset.sunAz[this.currentHourIndex] * Math.PI) / 180;
@@ -553,6 +545,10 @@ export class LanderSimulation {
       landerState,
       isRealData: this.dataset.isRealData,
       isMoonTrekApi: !!this.dataset.isMoonTrekApi,
+      ephemSource: this.dataset.ephemSource || null,
+      referenceSiteId: this.dataset.referenceSiteId || null,
+      demInfo: this.dataset.demInfo || null,
+      isCustomChunk: !!this.customCoordinates,
       trackingTarget: this.trackingTarget,
       nextSunEvent,
       nextEarthEvent,
@@ -566,6 +562,10 @@ export class LanderSimulation {
 
     if (modeName === 'overview') {
       this.orbitControls.enabled = true;
+      this.camera.near = 10.0;
+      this.camera.far = 1500000;
+      this.camera.updateProjectionMatrix();
+
       const currentDist = this.camera.position.distanceTo(this.orbitControls.target) || 4500;
       this.camera.position.set(0, Math.max(2600, currentDist * 0.6), Math.max(3600, currentDist * 0.8));
       this.orbitControls.target.set(0, 0, 0);
@@ -577,6 +577,9 @@ export class LanderSimulation {
       // In orbital overview: hide nearMesh so the 60km Moon surface is 100% seamless without square seams!
       if (this.terrain && this.terrain.nearMesh) this.terrain.nearMesh.visible = false;
       if (this.terrain && this.terrain.farMesh) this.terrain.farMesh.visible = true;
+      if (this.terrain && this.terrain.neighborMeshes) {
+        this.terrain.neighborMeshes.forEach(m => m.visible = true);
+      }
 
       // Fill lighting so orbital craters, terrain topography, and solid block pedestal are clearly visible
       if (this.ambientLight) {
@@ -588,6 +591,10 @@ export class LanderSimulation {
       }
     } else {
       this.orbitControls.enabled = false;
+      this.camera.near = 0.5;
+      this.camera.far = 1200000;
+      this.camera.updateProjectionMatrix();
+
       this.camera.rotation.order = 'YXZ';
       this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
       const groundH = this.sampleGroundHeight(this.landerX, this.landerZ);
@@ -599,6 +606,9 @@ export class LanderSimulation {
       // In lander mast mode: show nearMesh for fine walking resolution
       if (this.terrain && this.terrain.nearMesh) this.terrain.nearMesh.visible = true;
       if (this.terrain && this.terrain.farMesh) this.terrain.farMesh.visible = true;
+      if (this.terrain && this.terrain.neighborMeshes) {
+        this.terrain.neighborMeshes.forEach(m => m.visible = false);
+      }
 
       // High-contrast lunar mast lighting
       if (this.ambientLight) {
@@ -609,6 +619,11 @@ export class LanderSimulation {
         this.hemiLight.intensity = 0.30;
       }
     }
+  }
+
+  setExpeditionWindow(startHour, endHour) {
+    this.expeditionWindow = { startIdx: startHour, endIdx: endHour };
+    this.setHourIndex(startHour);
   }
 
   /**
@@ -763,16 +778,16 @@ export class LanderSimulation {
 
       this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
 
-      // WASD Surface Traversal
+      // WASD / Arrow Surface Traversal
       let moveForward = 0;
       let moveStrafe = 0;
-      if (this.keys.KeyW) moveForward += 1;
-      if (this.keys.KeyS) moveForward -= 1;
-      if (this.keys.KeyD) moveStrafe += 1;
-      if (this.keys.KeyA) moveStrafe -= 1;
+      if (this.keys.KeyW || this.keys.ArrowUp) moveForward += 1;
+      if (this.keys.KeyS || this.keys.ArrowDown) moveForward -= 1;
+      if (this.keys.KeyD || this.keys.ArrowRight) moveStrafe += 1;
+      if (this.keys.KeyA || this.keys.ArrowLeft) moveStrafe -= 1;
 
       if (moveForward !== 0 || moveStrafe !== 0) {
-        const speed = (this.keys.ShiftLeft || this.keys.ShiftRight) ? this.moveSpeed * 2.8 : this.moveSpeed;
+        const speed = (this.keys.ShiftLeft || this.keys.ShiftRight) ? this.moveSpeed * 3.0 : this.moveSpeed;
         const forwardX = -Math.sin(this.yaw);
         const forwardZ = -Math.cos(this.yaw);
         const rightX = Math.cos(this.yaw);
@@ -781,20 +796,20 @@ export class LanderSimulation {
         const dx = (forwardX * moveForward + rightX * moveStrafe) * speed * dt;
         const dz = (forwardZ * moveForward + rightZ * moveStrafe) * speed * dt;
 
-        this.landerX = Math.max(-1900, Math.min(1900, this.landerX + dx));
-        this.landerZ = Math.max(-1900, Math.min(1900, this.landerZ + dz));
+        this.landerX = Math.max(-25000, Math.min(25000, this.landerX + dx));
+        this.landerZ = Math.max(-25000, Math.min(25000, this.landerZ + dz));
 
         const groundH = this.sampleGroundHeight(this.landerX, this.landerZ);
         this.camera.position.set(this.landerX, groundH + 2.0, this.landerZ);
       }
     } else {
-      // WASD Orbital Camera Panning (Blender Style)
+      // WASD / Arrow Orbital Camera Panning (Blender Style)
       let panForward = 0;
       let panStrafe = 0;
-      if (this.keys.KeyW) panForward += 1;
-      if (this.keys.KeyS) panForward -= 1;
-      if (this.keys.KeyD) panStrafe += 1;
-      if (this.keys.KeyA) panStrafe -= 1;
+      if (this.keys.KeyW || this.keys.ArrowUp) panForward += 1;
+      if (this.keys.KeyS || this.keys.ArrowDown) panForward -= 1;
+      if (this.keys.KeyD || this.keys.ArrowRight) panStrafe += 1;
+      if (this.keys.KeyA || this.keys.ArrowLeft) panStrafe -= 1;
 
       if (panForward !== 0 || panStrafe !== 0) {
         // Orbit pan speed proportional to distance from target
@@ -819,6 +834,10 @@ export class LanderSimulation {
       }
 
       this.orbitControls.update();
+    }
+
+    if (this.celestials && this.celestials.updateStarfield) {
+      this.celestials.updateStarfield(this.camera.position);
     }
 
     this.renderer.render(this.scene, this.camera);

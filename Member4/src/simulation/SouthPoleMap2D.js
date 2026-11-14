@@ -35,46 +35,66 @@ export class SouthPoleMap2D {
     this.gridRows = 16;
     this.sectorSizeM = (this.mapExtentM * 2.0) / this.gridCols; // 20,000m = 20km
 
-    // Candidate landing sites
-    this.candidateSites = [
-      { id: 'site01', name: 'Connecting Ridge', lat: -89.452675, lon: -137.148653, elev: 1956.4 },
-      { id: 'site04', name: 'Shackleton Rim', lat: -89.761966, lon: -157.067197, elev: 1729.1 },
-      { id: 'site07', name: 'Peak nr Shackleton', lat: -88.807326, lon: 123.776844, elev: 1648.4 },
-      { id: 'site11', name: 'de Gerlache Rim', lat: -88.668256, lon: -68.375764, elev: 1814.2 },
-      { id: 'site23', name: 'Malapert Massif', lat: -86.002750, lon: 2.197695, elev: 5152.7 },
-    ];
-
-    // Compute polar coordinates for sites
-    this.candidateSites.forEach((s) => {
-      const p = latLonToPolar(s.lat, s.lon);
-      s.polarX = p.x;
-      s.polarY = p.y;
-    });
+    // Candidate landing sites (loaded dynamically from data_out/sites.json per Rule 1)
+    this.candidateSites = [];
 
     // Currently selected target
     this.currentHourIndex = 0;
-    this.currentTimestamp = '2027-01-01T00:00:00Z';
-    this.selectedTarget = {
-      sectorCol: 8,
-      sectorRow: 8,
-      polarX: -1000,
-      polarY: -7000,
-      lat: -89.762,
-      lon: 188.13,
-      elev: 1729.1,
-      name: 'Shackleton Rim (Site 04)',
-      siteId: 'site04',
-      isCandidateSite: true,
-      ephemeris: computeCustomEphemeris(-89.762, 188.13, 0),
-    };
+    this.currentTimestamp = '2027-01-09T00:00:00Z';
+    this.selectedTarget = null;
 
     this.hoverTarget = null;
     this.basemapImage = null;
 
     this.initDOM();
+    this.loadSitesFromData();
     this.loadBasemap();
     this.attachEvents();
     this.render();
+  }
+
+  async loadSitesFromData() {
+    try {
+      const res = await fetch('./data/sites.json');
+      if (res.ok) {
+        const sites = await res.json();
+        this.candidateSites = sites.map((s) => {
+          const p = latLonToPolar(s.lat, s.lon);
+          return {
+            id: s.id,
+            name: s.name,
+            lat: s.lat,
+            lon: s.lon,
+            elev: s.ground_height_m,
+            polarX: p.x,
+            polarY: p.y,
+          };
+        });
+
+        const defaultSite = this.candidateSites.find(s => s.id === 'site04') || this.candidateSites[0];
+        if (defaultSite) {
+          const normLon = defaultSite.lon < 0 ? defaultSite.lon + 360 : defaultSite.lon;
+          this.selectedTarget = {
+            sectorCol: Math.floor((defaultSite.polarX + this.mapExtentM) / this.sectorSizeM),
+            sectorRow: Math.floor((defaultSite.polarY + this.mapExtentM) / this.sectorSizeM),
+            polarX: defaultSite.polarX,
+            polarY: defaultSite.polarY,
+            lat: defaultSite.lat,
+            lon: normLon,
+            elev: defaultSite.elev,
+            name: `${defaultSite.name} (${defaultSite.id.toUpperCase()})`,
+            siteId: defaultSite.id,
+            sectorId: 'SEC-04',
+            isCandidateSite: true,
+            ephemeris: null,
+          };
+          this.updateInspector();
+        }
+        this.render();
+      }
+    } catch (err) {
+      console.warn('[SouthPoleMap2D] Failed to load sites.json:', err);
+    }
   }
 
   initDOM() {
@@ -423,7 +443,10 @@ export class SouthPoleMap2D {
 
     const elevText = t.elev !== null ? `${t.elev.toFixed(1)} m (NASA LOLA)` : 'querying Moon Trek…';
     const tagClass = t.isCandidateSite ? 'badge-candidate' : 'badge-sector';
-    const tagLabel = t.isCandidateSite ? 'NASA CANDIDATE SITE' : 'EXPLORATION CHUNK';
+    const tagLabel = t.isCandidateSite ? 'NASA CANDIDATE SITE' : 'APPROXIMATE EXPLORATION';
+    const provenanceNotice = t.isCandidateSite
+      ? `<div style="font-size: 11px; color: #a0c49d; margin-top: 6px; padding: 4px 6px; background: rgba(80,180,90,0.12); border-left: 2px solid #50b45a; border-radius: 2px;">Official PGDA candidate site · Validated flight DEM & JPL SPICE ephemeris</div>`
+      : `<div style="font-size: 11px; color: #e6b800; margin-top: 6px; padding: 4px 6px; background: rgba(255,180,0,0.12); border-left: 2px solid #e6b800; border-radius: 2px;">Visual exploration only · Topocentric estimate (not flight-certified)</div>`;
 
     this.inspectorCard.innerHTML = `
       <div class="card-header">
@@ -432,8 +455,9 @@ export class SouthPoleMap2D {
       </div>
       <div class="card-body">
         <h3 class="card-site-name">${t.name}</h3>
+        ${provenanceNotice}
 
-        <div class="card-metric-row">
+        <div class="card-metric-row" style="margin-top: 8px;">
           <span class="metric-label">Latitude</span>
           <span class="metric-value">${t.lat.toFixed(5)}°</span>
         </div>
