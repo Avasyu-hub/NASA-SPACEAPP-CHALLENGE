@@ -1,3 +1,7 @@
-name = "lunawise"
+name = "nasa-spaceapp-challenge"
 compatibility_date = "2024-11-01"
-pages_build_output_dir = "Member4/dist"
+
+[assets]
+directory = "./Member4/dist"
+html_handling = "auto-trailing-slash"
+not_found_handling = "single-page-application"

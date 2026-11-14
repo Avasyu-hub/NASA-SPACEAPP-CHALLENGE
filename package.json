@@ -1,12 +1,13 @@
 {
-  "name": "lunawise",
+  "name": "nasa-spaceapp-challenge",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "sync-data": "node Member4/scripts/sync-data.mjs",
     "build": "node Member4/scripts/sync-data.mjs && npm --prefix Member4 run build",
-    "deploy": "npm run build && npx wrangler pages deploy Member4/dist --project-name lunawise",
+    "deploy": "npm run build && npx wrangler deploy",
+    "deploy:pages": "npm run build && npx wrangler pages deploy Member4/dist --project-name nasa-spaceapp-challenge",
     "preview": "npm --prefix Member4 run preview"
   }
 }
