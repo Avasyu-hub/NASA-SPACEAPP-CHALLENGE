@@ -8,6 +8,7 @@ import { generateFakeDataset, testRaycast } from '../core/fakeData.js';
 import { DataLoader } from '../core/dataLoader.js';
 import { LanderModel } from '../core/landerModel.js';
 import { bodyDirection } from '../core/math.js';
+import { missionWindow, firstFailure, failureMessage } from '../core/missionLogic.js';
 
 /**
  * LunaWise Lander Digital Twin Simulation
@@ -221,6 +222,28 @@ export class LanderSimulation {
       this.horizon.setFromMaskData(realResult.mask.elev_deg);
 
       const totalH = realResult.angles.sun_az.length;
+
+      // Evaluate ground-truth mission failure using M1's missionLogic
+      let failureInfo = null;
+      try {
+        const win = missionWindow(realResult.results, { durationDays: 365 });
+        const fail = firstFailure(realResult.results, win, { maxNightH: 24, maxCommGapH: 24 });
+        if (fail) {
+          const failAz = fail.kind === 'night'
+            ? (realResult.angles.sun_az[fail.hourIndex] || 0)
+            : (realResult.angles.earth_az[fail.hourIndex] || 0);
+          failureInfo = {
+            hourIndex: fail.hourIndex,
+            durationHours: fail.runH || 1,
+            blockingAz: failAz,
+            failType: fail.kind,
+            message: failureMessage(fail, siteId),
+          };
+        }
+      } catch (err) {
+        console.warn('[LanderSimulation] Error evaluating first failure:', err);
+      }
+
       this.dataset = {
         totalHours: totalH,
         siteId,
@@ -232,6 +255,7 @@ export class LanderSimulation {
         sunLit: new Uint8Array(realResult.results.sun_lit),
         earthVis: new Uint8Array(realResult.results.earth_vis),
         agreementPct: '99.8',
+        firstFailure: failureInfo,
         isRealData: true,
       };
     } else {
@@ -336,9 +360,10 @@ export class LanderSimulation {
       sunLitRaycast: raySun,
       earthVisRaycast: rayEarth,
       agreementPct: this.workerAgreementPct || this.dataset.agreementPct,
-      failureEvent: h >= this.dataset.firstFailure.hourIndex && h <= this.dataset.firstFailure.hourIndex + this.dataset.firstFailure.durationHours
+      failureEvent: (this.dataset.firstFailure && h >= this.dataset.firstFailure.hourIndex && h <= this.dataset.firstFailure.hourIndex + (this.dataset.firstFailure.durationHours || 1))
         ? this.dataset.firstFailure
         : null,
+      totalHours: this.dataset.totalHours,
       landerState,
       isRealData: this.dataset.isRealData,
       trackingTarget: this.trackingTarget,

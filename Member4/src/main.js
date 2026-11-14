@@ -54,6 +54,17 @@ const btnJumpFailure = document.getElementById('btn-jump-failure');
 
 // Initialize the 3D Lander Digital Twin Simulation
 const sim = new LanderSimulation(container, (telemetry) => {
+  // Update timeline slider and numerical bounds if total hours changed
+  if (telemetry.totalHours) {
+    const maxH = telemetry.totalHours - 1;
+    if (Number(timeSlider.max) !== maxH) {
+      timeSlider.max = maxH;
+      frameInput.max = maxH;
+      const endInput = document.getElementById('timeline-end-val');
+      if (endInput) endInput.value = maxH;
+    }
+  }
+
   // Update time and frame display
   timeSlider.value = telemetry.hourIndex;
   frameInput.value = telemetry.hourIndex;
@@ -170,7 +181,8 @@ btnStepStart.addEventListener('click', () => {
   sim.setHourIndex(0);
 });
 btnStepEnd.addEventListener('click', () => {
-  sim.setHourIndex(719);
+  const maxH = sim.dataset ? sim.dataset.totalHours - 1 : 719;
+  sim.setHourIndex(maxH);
 });
 
 // Timeline Scrubbing Slider
@@ -182,7 +194,8 @@ timeSlider.addEventListener('input', (e) => {
 
 // Numerical Frame Input
 frameInput.addEventListener('change', (e) => {
-  const val = Math.max(0, Math.min(719, Number(e.target.value) || 0));
+  const maxH = sim.dataset ? sim.dataset.totalHours - 1 : 719;
+  const val = Math.max(0, Math.min(maxH, Number(e.target.value) || 0));
   timeSlider.value = val;
   sim.setHourIndex(val);
 });
