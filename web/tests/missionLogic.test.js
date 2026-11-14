@@ -1,0 +1,119 @@
+// Tests for web/src/core/missionLogic.js. Run from web/:  node --test tests/missionLogic.test.js
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import * as ml from "../src/core/missionLogic.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const DATA = join(here, "..", "..", "data_out");
+
+// Hand-made results: n hours from 2027-01-01T00:00Z with given flags.
+function fake(sun, earth = sun.map(() => 1)) {
+  const t0 = Date.parse("2027-01-01T00:00:00Z");
+  const t = sun.map((_, k) => new Date(t0 + k * 3600e3).toISOString().replace(".000Z", "Z"));
+  return { site: "test", t, sun_lit: sun, earth_vis: earth };
+}
+const rep = (v, n) => Array(n).fill(v);
+
+test("window: delay shifts the start by 24 h per day; truncation reported", () => {
+  const r = fake(rep(1, 100));
+  const w = ml.missionWindow(r, { delayDays: 1, durationDays: 2 });
+  assert.equal(w.startIdx, 24); assert.equal(w.endIdx, 72); assert.equal(w.truncated, false);
+  const late = ml.missionWindow(r, { delayDays: 3, durationDays: 2 });   // 72..120, data ends 100
+  assert.equal(late.hours, 28); assert.equal(late.truncated, true);
+  const w2 = ml.missionWindow(r, { startDate: "2027-01-01T10:00:00Z", durationDays: 1 });
+  assert.equal(w2.startIdx, 10); assert.equal(w2.startT, "2027-01-01T10:00:00Z");
+});
+
+test("all lit: 100 %, no nights, no failure", () => {
+  const r = fake(rep(1, 48));
+  const e = ml.evaluate(r, { durationDays: 2 }, { maxNightH: 5, minSunPct: 50 });
+  assert.equal(e.metrics.sunPct, 100); assert.equal(e.metrics.longestNightH, 0);
+  assert.equal(e.failure, null); assert.equal(e.pass, true);
+});
+
+test("alternating: 50 %, nights of 1 h", () => {
+  const r = fake(Array.from({ length: 48 }, (_, k) => k % 2));
+  const m = ml.windowMetrics(r, ml.missionWindow(r, { durationDays: 2 }));
+  assert.equal(m.sunPct, 50); assert.equal(m.longestNightH, 1);
+});
+
+test("a 50 h night crossing the window start counts only from landing", () => {
+  const sun = [...rep(1, 10), ...rep(0, 50), ...rep(1, 40)];          // dark hours 10..59
+  const r = fake(sun);
+  const w = ml.missionWindow(r, { startDate: "2027-01-02T06:00:00Z", durationDays: 2 }); // idx 30
+  const m = ml.windowMetrics(r, w);
+  assert.equal(w.startIdx, 30);
+  assert.equal(m.longestNightH, 30);                                   // 30..59 inside the window
+  assert.equal(m.longestNightStart, "2027-01-02T06:00:00Z");
+  const f = ml.firstFailure(r, w, { maxNightH: 24 });
+  assert.equal(f.kind, "night");
+  assert.equal(f.missionHour, 24);                                     // 25th dark hour
+  assert.equal(f.hourIndex, 54); assert.equal(f.runStart, "2027-01-02T06:00:00Z");
+  assert.equal(f.atLanding, true);
+  assert.match(ml.failureMessage(f), /already dark at landing \(2027-01-02 06:00 UTC\)/);
+});
+
+test("first failure is the earliest; comm can come before night", () => {
+  const sun = [...rep(1, 20), ...rep(0, 30)];
+  const earth = [...rep(1, 5), ...rep(0, 45)];
+  const f = ml.firstFailure(fake(sun, earth), { startIdx: 0, endIdx: 50, hours: 50 },
+                            { maxNightH: 10, maxCommGapH: 10 });
+  assert.equal(f.kind, "comm"); assert.equal(f.hourIndex, 15); assert.equal(f.runH, 11);
+});
+
+test("percent limits are judged at the window end", () => {
+  const r = fake([...rep(1, 10), ...rep(0, 2), ...rep(1, 12)]);
+  const f = ml.firstFailure(r, ml.missionWindow(r, { durationDays: 1 }),
+                            { maxNightH: 5, minSunPct: 95 });
+  assert.equal(f.kind, "sun_pct"); assert.equal(f.value, 91.7); assert.equal(f.missionHour, 23);
+});
+
+test("delay scan and first failing delay", () => {
+  const sun = [...rep(1, 72), ...rep(0, 48), ...rep(1, 200)];        // a 48 h night from hour 72
+  const scan = ml.delayScan(fake(sun), { durationDays: 2 }, { maxNightH: 24 }, 5);
+  // delay 2: window 48..95 sees dark 72..95 = 24 h (not > 24, passes);
+  // delay 3: window 72..119 sees all 48 dark hours (fails); delay 4: 96..143 sees 24 h (passes)
+  assert.deepEqual(scan.map((s) => s.pass), [true, true, true, false, true, true]);
+  assert.equal(ml.firstFailingDelay(scan), 3);
+});
+
+test("rankSites keeps passing sites, sorted by one named metric", () => {
+  const a = fake(rep(1, 48)); a.site = "a";
+  const b = fake([...rep(1, 40), ...rep(0, 8)]); b.site = "b";
+  const c = fake([...rep(1, 10), ...rep(0, 30), ...rep(1, 8)]); c.site = "c";
+  const r = ml.rankSites([{ results: b }, { results: a }, { results: c }],
+                         { durationDays: 2 }, { maxNightH: 12 }, "sunPct");
+  assert.deepEqual(r.passing.map((x) => x.site), ["a", "b"]);
+  assert.deepEqual(r.failing.map((x) => x.site), ["c"]);
+});
+
+test("failure message uses only computed numbers", () => {
+  const f = { kind: "comm", limit: 40, runStart: "2027-03-12T04:00:00Z",
+              timestamp: "2027-03-13T20:00:00Z", missionHour: 52 };
+  assert.equal(ml.failureMessage(f, "Shackleton rim"),
+    "Shackleton rim: Earth below the terrain horizon for more than 40 h. Contact was lost " +
+    "2027-03-12 04:00 UTC; the limit was exceeded at 2027-03-13 20:00 UTC (mission hour 53).");
+  assert.match(ml.failureMessage(null), /all requirements met/);
+});
+
+// --- Real data: JS full-year metrics must equal combine.py's summary exactly. ---
+const SITES = ["site01", "site04", "site07", "site11", "site23"];
+for (const id of SITES) {
+  const p = join(DATA, "results", `${id}.json`);
+  test(`real ${id}: JS metrics over the whole year match combine.py summary`,
+       { skip: !existsSync(p) && "no results file" }, () => {
+    const r = JSON.parse(readFileSync(p, "utf8"));
+    const w = ml.missionWindow(r, { durationDays: r.t.length / 24 });
+    const m = ml.windowMetrics(r, w);
+    const s = r.summary;
+    assert.equal(w.hours, s.total_hours);
+    assert.equal(m.sunPct, s.sun_pct); assert.equal(m.earthPct, s.earth_pct);
+    assert.equal(m.bothPct, s.both_pct);
+    assert.equal(m.longestNightH, s.longest_night_h);
+    assert.equal(m.longestCommGapH, s.longest_comm_gap_h);
+    assert.equal(m.longestNightStart, s.longest_night_start);
+  });
+}
