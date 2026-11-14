@@ -146,3 +146,55 @@ for (const id of SITES) {
     assert.equal(m.longestNightStart, s.longest_night_start);
   });
 }
+
+// ---- M1.1 countdowns -------------------------------------------------------------------------
+test("nextChange: hours until the flag changes, null when it never does", () => {
+  const r = fake([1, 1, 0, 0, 1]);
+  assert.deepEqual(ml.nextChange(r.sun_lit, r.t, 0), { now: 1, hours: 2, at: r.t[2], atIndex: 2 });
+  assert.deepEqual(ml.nextChange(r.sun_lit, r.t, 2), { now: 0, hours: 2, at: r.t[4], atIndex: 4 });
+  assert.equal(ml.nextChange(r.sun_lit, r.t, 4).hours, null);        // last hour: no change ahead
+  assert.equal(ml.nextChange(fake(rep(1, 5)).sun_lit, r.t, 0).hours, null);
+  assert.equal(ml.nextChange(r.sun_lit, r.t, 99), null);              // outside the data
+  const [a, b] = [[0, 1], [0, 1]];
+  assert.equal(ml.nextChange(a, b, 0).hours, 1);
+});
+
+test("countdowns + countdownText use the right words for each body and state", () => {
+  const r = fake([1, 1, 0], [0, 1, 1]);
+  const c = ml.countdowns(r, 0);
+  assert.equal(c.sun.hours, 2);
+  assert.equal(c.earth.hours, 1);
+  assert.equal(ml.countdownText(c.sun, "sun"), "Sunset in 2 h (2027-01-01 02:00 UTC)");
+  assert.equal(ml.countdownText(c.earth, "earth"), "Earthrise in 1 h (2027-01-01 01:00 UTC)");
+  assert.match(ml.countdownText(ml.countdowns(r, 2).sun, "sun"), /^No sunrise before the end/);
+  assert.equal(ml.countdownText(null), "—");
+});
+
+// ---- M1.3 solar elevation stats --------------------------------------------------------------
+test("sunElevationStats: now / max / min / mean over lit hours / margin", () => {
+  const r = fake([0, 1, 1, 0]);
+  r.sun_margin_deg = [-0.5, 0.25, 0.4, -0.1];
+  const angles = { sun_el: [0.1, 1.2, 1.6, 0.9] };
+  const win = { startIdx: 0, endIdx: 4, hours: 4 };
+  const s = ml.sunElevationStats(angles, r, win, 1);
+  assert.deepEqual(s, { nowDeg: 1.2, maxDeg: 1.6, maxAt: r.t[2], minDeg: 0.1, meanLitDeg: 1.4, nowMarginDeg: 0.25 });
+  const none = ml.sunElevationStats(angles, fake(rep(0, 4)), win, 0);
+  assert.equal(none.meanLitDeg, null);
+  assert.equal(none.nowMarginDeg, null);                              // no margin field present
+});
+
+test("real data: countdown agrees with the flags and margin sign agrees with sun_lit", { skip: !existsSync(join(DATA, "results", "site04.json")) }, () => {
+  const r = JSON.parse(readFileSync(join(DATA, "results", "site04.json")));
+  for (const k of [0, 500, 4000]) {
+    const c = ml.countdowns(r, k).sun;
+    if (c.hours !== null) {
+      assert.notEqual(r.sun_lit[k + c.hours], r.sun_lit[k]);
+      for (let j = k; j < k + c.hours; j++) assert.equal(r.sun_lit[j], r.sun_lit[k]);
+    }
+  }
+  if (r.sun_margin_deg) {
+    let bad = 0;
+    r.sun_lit.forEach((f, k) => { if ((r.sun_margin_deg[k] > 0 ? 1 : 0) !== f && Math.abs(r.sun_margin_deg[k]) > 0.01) bad++; });
+    assert.equal(bad, 0, "sun_margin_deg sign must match sun_lit (except rounding at 0.00)");
+  }
+});

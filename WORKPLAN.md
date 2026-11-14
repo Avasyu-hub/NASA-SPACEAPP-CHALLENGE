@@ -5,6 +5,18 @@
 > interfaces, the exact numbers to use, and a "done when" check.
 > **Read sections 0–3 first (everyone), then your own section.**
 
+> **Status 14 Nov, 22:53: backend complete.** Everything the front end reads is on `main` and tested:
+> - **Data:** `data_out/sites.json`, `nearby.json` (20 computed points 1 km N/E/S/W), `mask/`,
+>   `heightmap/`, `angles/`, `results/` (now with `sun_margin_deg` / `earth_margin_deg`), and
+>   `validation.json`.
+> - **Logic:** `web/src/core/missionLogic.js` adds `countdowns()`, `nextChange()`, `countdownText()` and
+>   `sunElevationStats()` (M1.1–M1.3).
+> - **Done:** M1.1–M1.4, M1.6, M2.1–M2.5, M2.7 and M5.1. Optional and not done: M2.6 (LDEC).
+> - **Remaining work is front end and write-up only:** M3 (dashboard, store, deploy), M4.1/M4.2
+>   (store + HUD countdowns, plus using `nearby.json` instead of `computeCustomEphemeris()`), and
+>   M5.2–M5.7.
+> - Rebuild validation: `node docs/make_validation.mjs`. Demo numbers: `node docs/demo_numbers.mjs`.
+
 Roles follow `goal.md`: **M1** engine · **M2** terrain · **M3** dashboard · **M4** simulation ·
 **M5** validation & submission. `README.md` lists six people. If you have a sixth, they take the
 **M6** tasks (section 9), which are split off from M5's write-ups. Put names next to the roles in

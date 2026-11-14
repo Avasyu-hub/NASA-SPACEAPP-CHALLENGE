@@ -11,6 +11,8 @@ Extras (readers that don't need them ignore them):
   sun_frac / earth_frac   fraction of the disc above the horizon, 0..1 (2 dp)
   summary_by_mast         the same summary for masts 0, 2, 5, 10 m
   longest_*_start         when the longest night / comm gap begins
+  sun_margin_deg / earth_margin_deg   degrees above (+) / below (-) the skyline each hour (2 dp);
+                          0.00 means within 0.005 deg of the skyline: use sun_lit/earth_vis as the verdict
 
 Run from Member1/:
   py -m pipeline.combine            # all sites
@@ -105,6 +107,11 @@ def combine_site(ang, mask):
                 for az, el in zip(ang["sun_az"], ang["sun_el"])]
     earth_frac = [round(disc_fraction(el, horizon_at(prof, az), EARTH_RADIUS_DEG), 2)
                   for az, el in zip(ang["earth_az"], ang["earth_el"])]
+    # WORKPLAN M1.2: degrees above (+) or below (-) the terrain skyline at the body's azimuth;
+    # the same quantity that decides sun_lit / earth_vis (lit when > 0).
+    sun_margin = [round(el - horizon_at(prof, az), 2) for az, el in zip(ang["sun_az"], ang["sun_el"])]
+    earth_margin = [round(el - horizon_at(prof, az), 2)
+                    for az, el in zip(ang["earth_az"], ang["earth_el"])]
 
     by_mast = {}
     for m in MASTS:
@@ -122,6 +129,8 @@ def combine_site(ang, mask):
         "obs_height_m": mask["obs_height_m"],
         "sun_frac": sun_frac,
         "earth_frac": earth_frac,
+        "sun_margin_deg": sun_margin,
+        "earth_margin_deg": earth_margin,
         "summary_by_mast": by_mast,
         "method": ("point Sun/Earth: lit/visible if disc-centre elevation > terrain horizon at its "
                    "azimuth (M2 mask, linear interpolation). sun_frac/earth_frac: disc fraction above "

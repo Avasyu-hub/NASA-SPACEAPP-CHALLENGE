@@ -75,3 +75,12 @@ def test_contract_fields_on_real_mask():
         assert k in res["summary"]
     assert set(res["sun_lit"]) <= {0, 1} and len(res["sun_lit"]) == 24
     json.dumps(res)
+
+
+def test_margin_fields_match_flags():
+    # WORKPLAN M1.2: margin = elevation - horizon; lit exactly when margin > 0
+    res = cb.combine_site(_ang([1, 1, 0, 0.5, 1, 0], [2, 2, 2, 2, 0, 0]), _mask(0.5))
+    assert res["sun_margin_deg"] == [0.5, 0.5, -0.5, 0.0, 0.5, -0.5]
+    assert res["earth_margin_deg"] == [1.5, 1.5, 1.5, 1.5, -0.5, -0.5]
+    assert [1 if m > 0 else 0 for m in res["sun_margin_deg"]] == res["sun_lit"]
+    assert [1 if m > 0 else 0 for m in res["earth_margin_deg"]] == res["earth_vis"]

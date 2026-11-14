@@ -4,8 +4,8 @@ Samples the 85S 60 m average Sun-visibility and Earth-visibility maps (18.6-year
 surface level) at each point in data_out/sites.json and puts them next to our 2027 sun_pct /
 earth_pct at 0 m and 2 m (data_out/results/<id>.json summary_by_mast).
 
-Maps are read from the cloud-optimized GeoTIFFs over HTTP by default (only a few pixels are
-fetched, full resolution). Use --local DIR to read files from disk instead.
+Maps are read over HTTP by default (range requests: only a few pixels are fetched, full
+resolution). Use --local DIR to read files from disk instead.
 
 Run from the repo root:
     py Member2/pipeline/goddard_compare.py
@@ -30,7 +30,9 @@ ENV = dict(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTEN
 def map_path(kind, local=None):
     if local:
         return str(Path(local) / f"{MAPS[kind]}.TIF")
-    return f"/vsicurl/{BASE}{MAPS[kind]}_COG.TIF"
+    # The *_COG.TIF names listed on the PGDA page return an HTML "Not Found" page; the plain .TIF
+    # files exist and the server supports range requests, so only the needed pixels are fetched.
+    return f"/vsicurl/{BASE}{MAPS[kind]}.TIF"
 
 
 def sample_fraction(src, lon, lat):
