@@ -123,6 +123,10 @@ export class HorizonOverlay {
     return (1 - frac) * this.elevDegArray[az0] + frac * this.elevDegArray[az1];
   }
 
+  sampleElevation(azDeg) {
+    return this.getHorizonElevation(azDeg);
+  }
+
   setVisible(visible) {
     this.visible = visible;
     if (this.maskLine) this.maskLine.visible = visible;

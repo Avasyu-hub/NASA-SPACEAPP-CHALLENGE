@@ -108,6 +108,8 @@ export class TerrainMesh {
     this.nearMesh = null;
     this.farMesh = null;
     this.pedestalMesh = null;
+    this.extendedCrustMesh = null;
+    this.neighborMeshes = [];
 
     this.nearGrid = null;
     this.farGrid = null;
@@ -278,14 +280,10 @@ export class TerrainMesh {
   }
 
   /**
-   * Generates site-specific south pole topography for all 5 candidate landing sites:
-   * - site04: Shackleton crater rim & connecting ridge
-   * - site01: De Gerlache crater rim (rolling plateau)
-   * - site07: Malapert Massif peak (towering mountain summit)
-   * - site11: Haworth crater rim (permanently shadowed rugged terrain)
-   * - site23: Amundsen crater rim (complex tiered impact basin)
+   * Generates site-specific south pole topography for candidate landing sites,
+   * or authentic rolling lunar highlands for off-grid exploration chunks.
    */
-  generateProceduralTerrain(siteId = 'site04') {
+  generateProceduralTerrain(siteId = 'site04', customCoords = null) {
     const R_MOON = 1737400.0;
 
     // Near grid: 512x512, 10m cells, 5120m total width (radius = 2560m)
@@ -302,11 +300,16 @@ export class TerrainMesh {
     const farSizeM = 61440.0;
     const farData = new Float32Array(farNx * farNy);
 
+    // Offset coordinates for unique topography per exploration sector
+    const pX = customCoords ? (customCoords.polarX || 0) : 0;
+    const pY = customCoords ? (customCoords.polarY || 0) : 0;
+    const seedOffset = Math.sin(pX * 0.0001 + pY * 0.0001) * 10000;
+
     // Deterministic field of surrounding impact craters across the 60km extent
     const surroundingCraters = [
-      // Major impact basins & prominent craters
-      { cx: -14000, cy: -18000, r: 6500, d: 1600, rim: 260, peak: true },
-      { cx: 16000, cy: -14000, r: 5400, d: 1450, rim: 220, peak: true },
+      // Major impact basins & prominent craters (safely placed at distances > 3.5km from lander)
+      { cx: -14000 + (seedOffset % 3000), cy: -18000, r: 6500, d: 1600, rim: 260, peak: true },
+      { cx: 16000, cy: -14000 + (seedOffset % 2500), r: 5400, d: 1450, rim: 220, peak: true },
       { cx: -19000, cy: 16000, r: 6200, d: 1550, rim: 240, peak: true },
       { cx: 13000, cy: 23000, r: 5600, d: 1400, rim: 230, peak: true },
       { cx: 22000, cy: -2000, r: 4800, d: 1250, rim: 190, peak: false },
@@ -328,7 +331,7 @@ export class TerrainMesh {
       { cx: -3800, cy: -15200, r: 2400, d: 710, rim: 115, peak: false },
       { cx: 18800, cy: -22500, r: 3900, d: 1150, rim: 185, peak: true },
 
-      // Smaller craters (800m - 1.5km)
+      // Smaller craters (800m - 1.5km) away from lander center
       { cx: 3400, cy: -3400, r: 1200, d: 380, rim: 65, peak: false },
       { cx: -4100, cy: 3300, r: 1350, d: 420, rim: 70, peak: false },
       { cx: 5100, cy: 3000, r: 1450, d: 460, rim: 75, peak: false },
@@ -345,12 +348,13 @@ export class TerrainMesh {
 
       // 1. Natural Fractal Brownian Motion (Simplex Noise)
       // Macro rolling mountain relief (wavelengths 4km - 28km, amplitude up to 1600m)
-      // Completely isotropic, NO grid / checkerboard artifacts!
-      const macroNoise = fbm(x * 0.00007, y * 0.00007, 4);
+      const coordShiftX = (pX * 0.00007) % 100;
+      const coordShiftY = (pY * 0.00007) % 100;
+      const macroNoise = fbm(x * 0.00007 + coordShiftX, y * 0.00007 + coordShiftY, 4);
       elev += macroNoise * 1450.0;
 
       // Meso rolling hills (wavelengths 800m - 3km)
-      const mesoNoise = simplex2D(x * 0.00035 + 2.1, y * 0.00035 + 1.4);
+      const mesoNoise = simplex2D(x * 0.00035 + 2.1 + coordShiftX * 2, y * 0.00035 + 1.4 + coordShiftY * 2);
       elev += mesoNoise * 180.0;
 
       // Micro topography roughness
@@ -404,6 +408,14 @@ export class TerrainMesh {
         // Site 23: Amundsen Crater Rim (Complex impact basin with central peak)
         elev += this.evalCrater(x, y, 0, -3800, 5600, 1650, 320, true);
         elev += this.evalCrater(x, y, -16000, -12000, 4400, 1300, 210, false);
+      } else {
+        // Off-grid exploration sector: authentic natural lunar highland plateau with gentle ridges
+        elev += simplex2D(x * 0.0004 + 1.2, y * 0.0004 + 2.7) * 240.0;
+        // Distant ridge crest 4km to 8km away to provide a realistic skyline horizon
+        const dRidge = Math.hypot(x - 4500, y - 6000);
+        if (dRidge < 8000) {
+          elev += Math.cos((dRidge / 8000) * Math.PI) * 160.0;
+        }
       }
 
       return elev;
@@ -446,6 +458,7 @@ export class TerrainMesh {
 
     this.buildMeshes();
     this.buildSolidPedestal();
+    this.buildExtendedCrust();
     this.computeSlopeTexture();
   }
 
@@ -487,7 +500,7 @@ export class TerrainMesh {
     this.nearMesh.name = 'nearTerrain';
     this.scene.add(this.nearMesh);
 
-    // 2. Far Mesh
+    // 2. Far Mesh (Center Square Chunk: 61.44 km x 61.44 km)
     const farGeo = new THREE.PlaneGeometry(
       this.farGrid.sizeM,
       this.farGrid.sizeM,
@@ -496,13 +509,34 @@ export class TerrainMesh {
     );
     farGeo.rotateX(-Math.PI / 2);
 
+    const R_MOON = 1737400.0;
+    const halfFar = this.farGrid.sizeM / 2; // 30720 m
+    const blendMargin = 5500.0; // 5.5 km boundary blend into neighboring square chunks
+
     const farPos = farGeo.attributes.position.array;
     for (let r = 0; r < this.farGrid.ny; r++) {
       for (let c = 0; c < this.farGrid.nx; c++) {
-        const dataRow = this.farGrid.ny - 1 - r;
         const vertexIndex = r * this.farGrid.nx + c;
+        const x = farPos[vertexIndex * 3];
+        const z = farPos[vertexIndex * 3 + 2];
+
+        const dataRow = this.farGrid.ny - 1 - r;
         const dataIndex = dataRow * this.farGrid.nx + c;
-        farPos[vertexIndex * 3 + 1] = this.farGrid.data[dataIndex];
+        const rawH = this.farGrid.data[dataIndex];
+
+        // Square edge distance to chunk boundaries:
+        const edgeDist = Math.min(halfFar - Math.abs(x), halfFar - Math.abs(z));
+
+        if (edgeDist >= blendMargin) {
+          farPos[vertexIndex * 3 + 1] = rawH;
+        } else {
+          // Smooth blend toward neighbor chunk continuous height at square perimeter
+          const t = Math.max(0, edgeDist / blendMargin);
+          const w = t * t * (3.0 - 2.0 * t); // smoothstep
+          const distSq = x * x + z * z;
+          const neighborH = -distSq / (2.0 * R_MOON) + this.evaluateMacroRelief(x, z);
+          farPos[vertexIndex * 3 + 1] = w * rawH + (1.0 - w) * neighborH;
+        }
       }
     }
     farGeo.computeVertexNormals();
@@ -516,8 +550,8 @@ export class TerrainMesh {
   }
 
   /**
-   * Builds vertical rock skirt walls on ALL 4 sides and a bottom plate around the far terrain perimeter.
-   * This turns the terrain into a solid 3D geological block (no see-through hollow void in orbital view).
+   * Builds solid subterranean mantle plate underneath the lunar crust
+   * so orbital view looking from below never shows see-through stars or void.
    */
   buildSolidPedestal() {
     if (this.pedestalMesh) {
@@ -526,84 +560,235 @@ export class TerrainMesh {
       this.pedestalMesh = null;
     }
 
-    const halfSize = this.farGrid.sizeM / 2.0;
-    const baseDepth = -4500.0; // Base floor height below deepest crater bowl
-    const nx = this.farGrid.nx;
-    const ny = this.farGrid.ny;
-    const cellM = this.farGrid.cellM;
-    const data = this.farGrid.data;
+    const S = this.farGrid ? this.farGrid.sizeM : 61440.0;
+    const slabSize = S * 3.1; // ~190 km square subterranean plate
+    const baseDepth = -7500.0;
+    const floorGeo = new THREE.PlaneGeometry(slabSize, slabSize);
+    floorGeo.rotateX(Math.PI / 2); // face downward
 
-    const vertices = [];
-
-    // Helper: sample perimeter height along edge
-    const getEdgeH = (r, c) => data[r * nx + c];
-
-    // 1. North Edge (r = ny - 1, z = -halfSize)
-    for (let c = 0; c < nx - 1; c++) {
-      const x0 = (c - nx / 2) * cellM;
-      const x1 = (c + 1 - nx / 2) * cellM;
-      const z = -halfSize;
-      const y0 = getEdgeH(ny - 1, c);
-      const y1 = getEdgeH(ny - 1, c + 1);
-
-      vertices.push(x0, y0, z,  x0, baseDepth, z,  x1, y1, z);
-      vertices.push(x1, y1, z,  x0, baseDepth, z,  x1, baseDepth, z);
-    }
-
-    // 2. South Edge (r = 0, z = halfSize)
-    for (let c = 0; c < nx - 1; c++) {
-      const x0 = (c - nx / 2) * cellM;
-      const x1 = (c + 1 - nx / 2) * cellM;
-      const z = halfSize;
-      const y0 = getEdgeH(0, c);
-      const y1 = getEdgeH(0, c + 1);
-
-      vertices.push(x0, y0, z,  x1, y1, z,  x0, baseDepth, z);
-      vertices.push(x1, y1, z,  x1, baseDepth, z,  x0, baseDepth, z);
-    }
-
-    // 3. West Edge (c = 0, x = -halfSize)
-    for (let r = 0; r < ny - 1; r++) {
-      const z0 = (r - ny / 2) * cellM;
-      const z1 = (r + 1 - ny / 2) * cellM;
-      const x = -halfSize;
-      const y0 = getEdgeH(r, 0);
-      const y1 = getEdgeH(r + 1, 0);
-
-      vertices.push(x, y0, z0,  x, baseDepth, z0,  x, y1, z1);
-      vertices.push(x, y1, z1,  x, baseDepth, z0,  x, baseDepth, z1);
-    }
-
-    // 4. East Edge (c = nx - 1, x = halfSize)
-    for (let r = 0; r < ny - 1; r++) {
-      const z0 = (r - ny / 2) * cellM;
-      const z1 = (r + 1 - ny / 2) * cellM;
-      const x = halfSize;
-      const y0 = getEdgeH(r, nx - 1);
-      const y1 = getEdgeH(r + 1, nx - 1);
-
-      vertices.push(x, y0, z0,  x, y1, z1,  x, baseDepth, z0);
-      vertices.push(x, y1, z1,  x, baseDepth, z1,  x, baseDepth, z0);
-    }
-
-    // 5. Solid Bottom Floor
-    vertices.push(
-      -halfSize, baseDepth, -halfSize,
-      halfSize, baseDepth, -halfSize,
-      -halfSize, baseDepth, halfSize,
-
-      -halfSize, baseDepth, halfSize,
-      halfSize, baseDepth, -halfSize,
-      halfSize, baseDepth, halfSize
-    );
-
-    const pedestalGeo = new THREE.BufferGeometry();
-    pedestalGeo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    pedestalGeo.computeVertexNormals();
-
-    this.pedestalMesh = new THREE.Mesh(pedestalGeo, this.pedestalMaterial);
-    this.pedestalMesh.name = 'solidPedestal';
+    this.pedestalMesh = new THREE.Mesh(floorGeo, this.pedestalMaterial);
+    this.pedestalMesh.position.y = baseDepth;
+    this.pedestalMesh.name = 'solidSubterraneanPlate';
     this.scene.add(this.pedestalMesh);
+  }
+
+  /**
+   * Evaluates procedural macro lunar topography (craters + highland fractal relief)
+   * across the expansive multi-chunk lunar South Pole.
+   */
+  evaluateMacroRelief(x, z) {
+    let elev = 0;
+
+    // Macro lunar highland relief (wavelengths 15km - 80km)
+    const macro = fbm(x * 0.000028 + 5.2, z * 0.000028 + 3.7, 4) * 750.0;
+    const meso = fbm(x * 0.000085 + 1.4, z * 0.000085 + 8.1, 3) * 280.0;
+    elev += macro + meso;
+
+    // Surrounding regional craters across the multi-chunk landscape
+    const regionalCraters = [
+      { cx: -55000, cy: -40000, r: 16000, d: 2400, rim: 450, peak: true },
+      { cx: 48000, cy: -52000, r: 14000, d: 2100, rim: 380, peak: true },
+      { cx: -42000, cy: 56000, r: 15000, d: 2200, rim: 410, peak: true },
+      { cx: 58000, cy: 45000, r: 13500, d: 1950, rim: 360, peak: false },
+      { cx: -14000, cy: -18000, r: 6500, d: 1600, rim: 260, peak: true },
+      { cx: 16000, cy: -14000, r: 5400, d: 1450, rim: 220, peak: true },
+      { cx: -19000, cy: 16000, r: 6200, d: 1550, rim: 240, peak: true },
+      { cx: 13000, cy: 23000, r: 5600, d: 1400, rim: 230, peak: true },
+      { cx: 22000, cy: -2000, r: 4800, d: 1250, rim: 190, peak: false },
+      { cx: -24000, cy: -4000, r: 5200, d: 1350, rim: 200, peak: false },
+      { cx: 2000, cy: 25000, r: 4700, d: 1200, rim: 180, peak: false },
+      { cx: -3000, cy: -26000, r: 6000, d: 1550, rim: 250, peak: true },
+      { cx: 0, cy: 62000, r: 18000, d: 2600, rim: 480, peak: true },
+      { cx: -65000, cy: 0, r: 17000, d: 2500, rim: 460, peak: true },
+      { cx: 65000, cy: 0, r: 15000, d: 2200, rim: 390, peak: true },
+      { cx: 0, cy: -68000, r: 19000, d: 2800, rim: 520, peak: true },
+    ];
+
+    for (const c of regionalCraters) {
+      elev += this.evalCrater(x, z, c.cx, c.cy, c.r, c.d, c.rim, c.peak);
+    }
+
+    return elev;
+  }
+
+  /**
+   * Constructs Minecraft-style square neighboring chunks surrounding the center site chunk.
+   * Creates an expansive 184.32 km x 184.32 km contiguous square multi-chunk terrain.
+   */
+  buildNeighborChunks() {
+    this.disposeNeighborChunks();
+
+    const S = this.farGrid ? this.farGrid.sizeM : 61440.0;
+    const segments = 48;
+    const R_MOON = 1737400.0;
+
+    const offsets = [
+      { dx: 0, dz: -1, name: 'North' },
+      { dx: 0, dz: 1, name: 'South' },
+      { dx: 1, dz: 0, name: 'East' },
+      { dx: -1, dz: 0, name: 'West' },
+      { dx: 1, dz: -1, name: 'NE' },
+      { dx: -1, dz: -1, name: 'NW' },
+      { dx: 1, dz: 1, name: 'SE' },
+      { dx: -1, dz: 1, name: 'SW' },
+    ];
+
+    for (const off of offsets) {
+      const geo = new THREE.PlaneGeometry(S, S, segments, segments);
+      geo.rotateX(-Math.PI / 2);
+
+      const pos = geo.attributes.position.array;
+      const vCount = geo.attributes.position.count;
+      const chunkCenterX = off.dx * S;
+      const chunkCenterZ = off.dz * S;
+
+      for (let i = 0; i < vCount; i++) {
+        const localX = pos[i * 3];
+        const localZ = pos[i * 3 + 2];
+        const worldX = chunkCenterX + localX;
+        const worldZ = chunkCenterZ + localZ;
+
+        const distSq = worldX * worldX + worldZ * worldZ;
+        const curve = -distSq / (2.0 * R_MOON);
+        const relief = this.evaluateMacroRelief(worldX, worldZ);
+
+        pos[i * 3 + 1] = curve + relief;
+      }
+
+      geo.computeVertexNormals();
+      geo.attributes.position.needsUpdate = true;
+
+      const mat = this.lunarBaseMaterial.clone();
+      mat.roughness = 0.94;
+      mat.metalness = 0.01;
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(chunkCenterX, 0, chunkCenterZ);
+      mesh.receiveShadow = true;
+      mesh.castShadow = true;
+      mesh.name = `neighborChunk_${off.name}`;
+      this.scene.add(mesh);
+      this.neighborMeshes.push(mesh);
+    }
+  }
+
+  disposeNeighborChunks() {
+    if (this.neighborMeshes && this.neighborMeshes.length > 0) {
+      for (const m of this.neighborMeshes) {
+        this.scene.remove(m);
+        m.geometry.dispose();
+        if (m.material) m.material.dispose();
+      }
+      this.neighborMeshes = [];
+    }
+  }
+
+  /**
+   * Continuous bilinear height sampling across the multi-chunk planetary surface.
+   * Guarantees non-zero, realistic elevation under the camera anywhere in the 184km region.
+   */
+  sampleHeightAt(x, z) {
+    if (this.nearGrid) {
+      const halfNear = this.nearGrid.sizeM / 2;
+      if (Math.abs(x) <= halfNear && Math.abs(z) <= halfNear) {
+        const grid = this.nearGrid;
+        const colFloat = (x + halfNear) / grid.cellM;
+        const rowFloat = (z + halfNear) / grid.cellM;
+        const col0 = Math.max(0, Math.min(grid.nx - 2, Math.floor(colFloat)));
+        const row0 = Math.max(0, Math.min(grid.ny - 2, Math.floor(rowFloat)));
+        const u = Math.max(0, Math.min(1, colFloat - col0));
+        const v = Math.max(0, Math.min(1, rowFloat - row0));
+
+        const dataRow0 = grid.ny - 1 - row0;
+        const dataRow1 = grid.ny - 1 - (row0 + 1);
+
+        const h00 = grid.data[dataRow0 * grid.nx + col0];
+        const h10 = grid.data[dataRow0 * grid.nx + (col0 + 1)];
+        const h01 = grid.data[dataRow1 * grid.nx + col0];
+        const h11 = grid.data[dataRow1 * grid.nx + (col0 + 1)];
+
+        return (1 - u) * (1 - v) * h00 + u * (1 - v) * h10 + (1 - u) * v * h01 + u * v * h11;
+      }
+    }
+
+    if (this.farGrid) {
+      const halfFar = this.farGrid.sizeM / 2;
+      if (Math.abs(x) <= halfFar && Math.abs(z) <= halfFar) {
+        const grid = this.farGrid;
+        const colFloat = (x + halfFar) / grid.cellM;
+        const rowFloat = (z + halfFar) / grid.cellM;
+        const col0 = Math.max(0, Math.min(grid.nx - 2, Math.floor(colFloat)));
+        const row0 = Math.max(0, Math.min(grid.ny - 2, Math.floor(rowFloat)));
+        const u = Math.max(0, Math.min(1, colFloat - col0));
+        const v = Math.max(0, Math.min(1, rowFloat - row0));
+
+        const dataRow0 = grid.ny - 1 - row0;
+        const dataRow1 = grid.ny - 1 - (row0 + 1);
+
+        const h00 = grid.data[dataRow0 * grid.nx + col0];
+        const h10 = grid.data[dataRow0 * grid.nx + (col0 + 1)];
+        const h01 = grid.data[dataRow1 * grid.nx + col0];
+        const h11 = grid.data[dataRow1 * grid.nx + (col0 + 1)];
+
+        return (1 - u) * (1 - v) * h00 + u * (1 - v) * h10 + (1 - u) * v * h01 + u * v * h11;
+      }
+    }
+
+    const R_MOON = 1737400.0;
+    return -(x * x + z * z) / (2.0 * R_MOON) + this.evaluateMacroRelief(x, z);
+  }
+
+  loadDynamicChunk(nearResult, farResult, sizeNearM = 5120.0, sizeFarM = 61440.0, satelliteImage = null) {
+    if (satelliteImage) {
+      const tex = new THREE.CanvasTexture(satelliteImage);
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.generateMipmaps = true;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      this.lunarBaseMaterial.map = tex;
+      this.lunarBaseMaterial.bumpMap = tex;
+      this.lunarBaseMaterial.bumpScale = 0.08;
+      this.lunarBaseMaterial.roughness = 0.94;
+      this.lunarBaseMaterial.needsUpdate = true;
+    }
+
+    this.nearGrid = {
+      data: nearResult.data,
+      nx: nearResult.width,
+      ny: nearResult.height,
+      cellM: sizeNearM / nearResult.width,
+      sizeM: sizeNearM,
+      maxDist: sizeNearM / 2,
+    };
+
+    const centerIdx = Math.floor(nearResult.height / 2) * nearResult.width + Math.floor(nearResult.width / 2);
+    const datumOffset = this.nearGrid.data[centerIdx] || 0;
+
+    for (let i = 0; i < this.nearGrid.data.length; i++) {
+      this.nearGrid.data[i] -= datumOffset;
+    }
+
+    if (farResult && farResult.data) {
+      this.farGrid = {
+        data: farResult.data,
+        nx: farResult.width,
+        ny: farResult.height,
+        cellM: sizeFarM / farResult.width,
+        sizeM: sizeFarM,
+        maxDist: sizeFarM / 2,
+      };
+      for (let i = 0; i < this.farGrid.data.length; i++) {
+        this.farGrid.data[i] -= datumOffset;
+      }
+    } else {
+      this.farGrid = this.nearGrid;
+    }
+
+    this.buildMeshes();
+    this.buildSolidPedestal();
+    this.buildExtendedCrust();
+    this.computeSlopeTexture();
   }
 
   loadFromBuffers(nearBuffer, nearMeta, farBuffer, farMeta) {
@@ -627,6 +812,7 @@ export class TerrainMesh {
 
     this.buildMeshes();
     this.buildSolidPedestal();
+    this.buildExtendedCrust();
     this.computeSlopeTexture();
   }
 
@@ -752,6 +938,12 @@ export class TerrainMesh {
       this.scene.remove(this.pedestalMesh);
       this.pedestalMesh.geometry.dispose();
       this.pedestalMesh = null;
+    }
+    if (this.extendedCrustMesh) {
+      this.scene.remove(this.extendedCrustMesh);
+      this.extendedCrustMesh.geometry.dispose();
+      if (this.extendedCrustMesh.material) this.extendedCrustMesh.material.dispose();
+      this.extendedCrustMesh = null;
     }
   }
 }

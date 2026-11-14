@@ -1,12 +1,18 @@
 import { LanderSimulation } from './simulation/LanderSimulation.js';
+import { SouthPoleMap2D } from './simulation/SouthPoleMap2D.js';
 
 // DOM Elements
 const container = document.getElementById('simulation-container');
+const map2dContainer = document.getElementById('map-2d-container');
+const viewportModeSelect = document.getElementById('viewport-mode-select');
+const toolsDock = document.querySelector('.blender-tools-dock');
 const timeSlider = document.getElementById('time-slider');
 const frameInput = document.getElementById('frame-input');
 const timeIsoText = document.getElementById('time-iso-text');
 const sunCoordsText = document.getElementById('sun-coords-text');
 const earthCoordsText = document.getElementById('earth-coords-text');
+
+let map2d = null;
 
 const siteSelector = document.getElementById('site-selector');
 const badgeSun = document.getElementById('badge-sun');
@@ -53,98 +59,143 @@ const btnLookNorth = document.getElementById('btn-look-north');
 const btnJumpFailure = document.getElementById('btn-jump-failure');
 const windowStartInput = document.getElementById('window-start-input');
 const windowEndInput = document.getElementById('window-end-input');
+const totalHoursInput = document.getElementById('total-hours-input');
 const delayInput = document.getElementById('delay-input');
 const frameTicks = document.getElementById('frame-ticks');
 
+const countdownText = document.getElementById('countdown-text');
+const scaleWarningBadge = document.getElementById('scale-warning-badge');
+const scaleWarningText = document.getElementById('scale-warning-text');
+const walkWarningBadge = document.getElementById('walk-warning-badge');
+const walkWarningText = document.getElementById('walk-warning-text');
+const loadingOverlay = document.getElementById('loading-overlay');
+const loadingStatusText = document.getElementById('loading-status-text');
+
 // Initialize the 3D Lander Digital Twin Simulation
-const sim = new LanderSimulation(container, (telemetry) => {
-  // Update time and frame display
-  timeSlider.value = telemetry.hourIndex;
-  frameInput.value = telemetry.hourIndex;
-  timeIsoText.textContent = telemetry.timestamp;
-  sunCoordsText.textContent = `${telemetry.sunAz}°, ${telemetry.sunEl}°`;
-  earthCoordsText.textContent = `${telemetry.earthAz}°, ${telemetry.earthEl}°`;
+const sim = new LanderSimulation(
+  container,
+  (telemetry) => {
+    // Update time and frame display
+    timeSlider.value = telemetry.hourIndex;
+    frameInput.value = telemetry.hourIndex;
+    timeIsoText.textContent = telemetry.timestamp;
+    sunCoordsText.textContent = `${telemetry.sunAz}°, ${telemetry.sunEl}°`;
+    earthCoordsText.textContent = `${telemetry.earthAz}°, ${telemetry.earthEl}°`;
 
-  // Update Tracking Lock Telemetry
-  if (telemetry.trackingTarget === 'sun') {
-    trackingBadge.style.display = 'flex';
-    trackingText.textContent = 'TRACKING: SUN (LOCKED)';
-    btnLookSun.classList.add('active');
-    btnLookEarth.classList.remove('active');
-  } else if (telemetry.trackingTarget === 'earth') {
-    trackingBadge.style.display = 'flex';
-    trackingText.textContent = 'TRACKING: EARTH (LOCKED)';
-    btnLookEarth.classList.add('active');
-    btnLookSun.classList.remove('active');
-  } else {
-    trackingBadge.style.display = 'none';
-    btnLookSun.classList.remove('active');
-    btnLookEarth.classList.remove('active');
-  }
-
-  // Mission window: slider / frame inputs follow it (no fixed hour counts).
-  const win = telemetry.window;
-  if (win && win.hours) {
-    const lo = win.startIdx, hi = win.endIdx - 1;
-    if (Number(timeSlider.min) !== lo || Number(timeSlider.max) !== hi) {
-      timeSlider.min = lo; timeSlider.max = hi;
-      frameInput.min = lo; frameInput.max = hi;
-      windowStartInput.value = lo; windowEndInput.value = hi;
-      frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
-        `<span>${Math.round(lo + (k * (hi - lo)) / 4)}</span>`).join('');
-    }
-  }
-  delayInput.value = telemetry.delayDays;
-
-  // Battery (missionLogic.batteryTrace; scenario assumption, not NASA data). "—" outside the window.
-  if (telemetry.landerState) {
-    const soc = telemetry.landerState.socPct;
-    batteryBarFill.style.width = `${soc}%`;
-    batteryPctText.textContent = `${soc}%`;
-
-    if (soc < 20) {
-      batteryBarFill.style.backgroundColor = 'var(--blender-danger)';
-    } else if (soc < 45) {
-      batteryBarFill.style.backgroundColor = 'var(--blender-accent)';
+    // Update Tracking Lock Telemetry
+    if (telemetry.trackingTarget === 'sun') {
+      trackingBadge.style.display = 'flex';
+      trackingText.textContent = 'TRACKING: SUN (LOCKED)';
+      btnLookSun.classList.add('active');
+      btnLookEarth.classList.remove('active');
+    } else if (telemetry.trackingTarget === 'earth') {
+      trackingBadge.style.display = 'flex';
+      trackingText.textContent = 'TRACKING: EARTH (LOCKED)';
+      btnLookEarth.classList.add('active');
+      btnLookSun.classList.remove('active');
     } else {
-      batteryBarFill.style.backgroundColor = 'var(--blender-success)';
+      trackingBadge.style.display = 'none';
+      btnLookSun.classList.remove('active');
+      btnLookEarth.classList.remove('active');
     }
-  } else {
-    batteryBarFill.style.width = '0%';
-    batteryPctText.textContent = '—';
+
+    // Mission window: slider / frame inputs allow full-year scrubbing (0-8759), inputs show mission window.
+    const win = telemetry.window;
+    if (win && win.hours) {
+      const totalMax = (telemetry.totalHours ? telemetry.totalHours - 1 : 8759);
+      if (Number(timeSlider.max) !== totalMax) {
+        timeSlider.min = 0;
+        timeSlider.max = totalMax;
+        frameInput.min = 0;
+        frameInput.max = totalMax;
+        frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
+          `<span>${Math.round((k * totalMax) / 4)}</span>`).join('');
+      }
+      windowStartInput.value = win.startIdx;
+      windowEndInput.value = win.endIdx - 1;
+      if (totalHoursInput) totalHoursInput.value = totalMax;
+    }
+    delayInput.value = telemetry.delayDays;
+
+    // Battery (missionLogic.batteryTrace; scenario assumption, not NASA data). "—" outside the window.
+    if (telemetry.landerState) {
+      const soc = telemetry.landerState.socPct;
+      batteryBarFill.style.width = `${soc}%`;
+      batteryPctText.textContent = `${soc}%`;
+
+      if (soc < 20) {
+        batteryBarFill.style.backgroundColor = 'var(--blender-danger)';
+      } else if (soc < 45) {
+        batteryBarFill.style.backgroundColor = 'var(--blender-accent)';
+      } else {
+        batteryBarFill.style.backgroundColor = 'var(--blender-success)';
+      }
+    } else {
+      batteryBarFill.style.width = '0%';
+      batteryPctText.textContent = '—';
+    }
+
+    // Sun / Earth badges: engine flag, independent ray-cast result in brackets.
+    const ray = (v) => (v ? 'ray: clear' : 'ray: blocked');
+    badgeSun.className = `telemetry-box ${telemetry.sunLitEngine ? 'status-ok' : 'status-blocked'}`;
+    sunStatusText.textContent = `SUN: ${telemetry.sunLitEngine ? 'OK' : 'BLOCKED'} (${ray(telemetry.sunLitRaycast)})`;
+    badgeEarth.className = `telemetry-box ${telemetry.earthVisEngine ? 'status-ok' : 'status-blocked'}`;
+    earthStatusText.textContent = `EARTH: ${telemetry.earthVisEngine ? 'OK' : 'BLOCKED'} (${ray(telemetry.earthVisRaycast)})`;
+
+    // M4.2 Real-time Countdowns & Ridge Margins in HUD
+    if (countdownText) {
+      countdownText.textContent = `${telemetry.nextSunEvent || '—'} · ${telemetry.nextEarthEvent || '—'} (${telemetry.sunMarginDeg}° ridge)`;
+    }
+
+    // M4.3 Walk Distance Warning
+    if (walkWarningBadge && walkWarningText) {
+      if (telemetry.walkDistM > 50) {
+        walkWarningBadge.style.display = 'flex';
+        walkWarningText.textContent = `Mask line is for the lander position; you are ${telemetry.walkDistM} m away`;
+      } else {
+        walkWarningBadge.style.display = 'none';
+      }
+    }
+
+    // Pass telemetry to 2D Map
+    if (typeof map2d !== 'undefined' && map2d) {
+      map2d.updateEphemeris(telemetry);
+    }
+
+    // Ray-cast agreement: only computed results, never a typed-in number.
+    const fmt = (r) => (!r ? 'computing…' : r.error ? 'error'
+      : `${r.pct.toFixed(1)}% of ${r.checked} h${r.outOfGrid ? ` (+${r.outOfGrid} h beyond grid)` : ''}`);
+    const ag = telemetry.agreement || {};
+    raycastAgreementText.textContent = telemetry.isRealData
+      ? `Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`
+      : `synthetic: Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`;
+
+    // Failure banner: text from missionLogic.failureMessage() on the engine flags.
+    if (telemetry.failureEvent) {
+      failureBanner.style.display = 'flex';
+      failureBannerText.textContent = telemetry.failureEvent.message;
+    } else {
+      failureBanner.style.display = 'none';
+    }
+
+    // Data provenance label
+    if (telemetry.isMoonTrekApi) {
+      dataProvenanceText.textContent =
+        `DATA: NASA MOON TREK REST API (LOLA DEM 20m) · ${telemetry.siteName}`;
+    } else if (telemetry.isRealData) {
+      dataProvenanceText.textContent =
+        `DATA: NASA LOLA 5 m / 20 m terrain · JPL SPICE ephemeris (checked vs Horizons) · ${telemetry.siteName}`;
+    } else {
+      dataProvenanceText.textContent = `DATA: SYNTHETIC DEMO (data_out/ not found) · ${telemetry.siteId}`;
+    }
+  },
+  (isLoading, message) => {
+    if (loadingOverlay) {
+      loadingOverlay.style.display = isLoading ? 'flex' : 'none';
+      if (loadingStatusText && message) loadingStatusText.textContent = message;
+    }
   }
-
-  // Sun / Earth badges: engine flag, independent ray-cast result in brackets.
-  const ray = (v) => (v ? 'ray: clear' : 'ray: blocked');
-  badgeSun.className = `telemetry-box ${telemetry.sunLitEngine ? 'status-ok' : 'status-blocked'}`;
-  sunStatusText.textContent = `SUN: ${telemetry.sunLitEngine ? 'OK' : 'BLOCKED'} (${ray(telemetry.sunLitRaycast)})`;
-  badgeEarth.className = `telemetry-box ${telemetry.earthVisEngine ? 'status-ok' : 'status-blocked'}`;
-  earthStatusText.textContent = `EARTH: ${telemetry.earthVisEngine ? 'OK' : 'BLOCKED'} (${ray(telemetry.earthVisRaycast)})`;
-
-  // Ray-cast agreement: only computed results, never a typed-in number.
-  const fmt = (r) => (!r ? 'computing…' : r.error ? 'error'
-    : `${r.pct.toFixed(1)}% of ${r.checked} h${r.outOfGrid ? ` (+${r.outOfGrid} h beyond grid)` : ''}`);
-  const ag = telemetry.agreement || {};
-  raycastAgreementText.textContent = telemetry.isRealData
-    ? `Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`
-    : `synthetic: Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`;
-
-  // Failure banner: text from missionLogic.failureMessage() on the engine flags.
-  if (telemetry.failureEvent) {
-    failureBanner.style.display = 'flex';
-    failureBannerText.textContent = telemetry.failureEvent.message;
-  } else {
-    failureBanner.style.display = 'none';
-  }
-
-  // Data provenance label
-  if (telemetry.isRealData) {
-    dataProvenanceText.textContent =
-      `DATA: NASA LOLA 5 m / 20 m terrain · JPL SPICE ephemeris (checked vs Horizons) · ${telemetry.siteName}`;
-  } else {
-    dataProvenanceText.textContent = `DATA: SYNTHETIC DEMO (data_out/ not found) · ${telemetry.siteId}`;
-  }
-});
+);
 
 // Set initial speed
 sim.setSpeed(Number(speedSelector.value));
@@ -196,8 +247,8 @@ btnStepStart.addEventListener('click', () => {
   sim.setHourIndex(sim.dataset?.window?.startIdx ?? 0);
 });
 btnStepEnd.addEventListener('click', () => {
-  const w = sim.dataset?.window;
-  sim.setHourIndex(w && w.hours ? w.endIdx - 1 : 0);
+  const totalMax = sim.dataset?.totalHours ? sim.dataset.totalHours - 1 : 8759;
+  sim.setHourIndex(totalMax);
 });
 
 // Launch delay (days): moves the mission window; failure and battery are recomputed.
@@ -265,6 +316,15 @@ function setScaleActive(mult, btn) {
   [btnScale1x, btnScale3x, btnScale5x].forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
   sim.celestials.setExaggeration(mult);
+
+  if (scaleWarningBadge && scaleWarningText) {
+    if (mult > 1.0) {
+      scaleWarningBadge.style.display = 'flex';
+      scaleWarningText.textContent = `Sun/Earth enlarged ×${mult} for visibility (true angular sizes 0.53° / 1.9°)`;
+    } else {
+      scaleWarningBadge.style.display = 'none';
+    }
+  }
 }
 btnScale1x.addEventListener('click', () => setScaleActive(1.0, btnScale1x));
 btnScale3x.addEventListener('click', () => setScaleActive(3.0, btnScale3x));
@@ -287,3 +347,53 @@ btnLookNorth.addEventListener('click', () => {
 btnJumpFailure.addEventListener('click', () => {
   sim.jumpToFirstFailure();
 });
+
+// -------------------------------------------------------------
+// 2D South Pole Navigator & Viewport Mode Dropdown
+// -------------------------------------------------------------
+map2d = new SouthPoleMap2D(map2dContainer, (target) => {
+  // Teleport from 2D map into 3D Simulation Viewport
+  setViewportMode('3d');
+  if (target.isCandidateSite && target.siteId) {
+    siteSelector.value = target.siteId;
+    sim.loadDataset(target.siteId);
+  } else {
+    // Add or select custom sector option
+    let customOpt = siteSelector.querySelector('option[value="custom"]');
+    if (!customOpt) {
+      customOpt = document.createElement('option');
+      customOpt.value = 'custom';
+      siteSelector.appendChild(customOpt);
+    }
+    customOpt.textContent = target.name || `Sector ${target.sectorId}`;
+    customOpt.selected = true;
+    siteSelector.value = 'custom';
+
+    sim.loadCustomChunk(target);
+  }
+});
+
+function setViewportMode(mode) {
+  const is3D = mode === '3d';
+  container.style.display = is3D ? 'block' : 'none';
+  if (is3D) {
+    map2dContainer.classList.remove('active');
+    map2dContainer.style.display = 'none';
+    map2dContainer.style.pointerEvents = 'none';
+    map2d.setVisible(false);
+  } else {
+    map2dContainer.classList.add('active');
+    map2dContainer.style.display = 'block';
+    map2dContainer.style.pointerEvents = 'auto';
+    map2d.setVisible(true);
+  }
+  if (toolsDock) toolsDock.style.display = is3D ? 'flex' : 'none';
+  if (viewportModeSelect) viewportModeSelect.value = mode;
+}
+
+if (viewportModeSelect) {
+  viewportModeSelect.addEventListener('change', (e) => {
+    setViewportMode(e.target.value);
+  });
+}
+

@@ -10,6 +10,9 @@
   <!-- Three.js Canvas Container -->
   <div id="simulation-container"></div>
 
+  <!-- 2D Lunar South Pole Map Container -->
+  <div id="map-2d-container"></div>
+
   <!-- Blender-Style Top Header Bar -->
   <header class="blender-header">
     <div class="header-left">
@@ -19,6 +22,21 @@
           <path d="M12 3a9 9 0 0 0 0 18"></path>
         </svg>
         <span class="brand-title">LUNAWISE</span>
+      </div>
+
+      <div class="header-separator"></div>
+
+      <!-- Primary Viewport Mode Dropdown (Blender Object Mode Style) -->
+      <div class="viewport-mode-wrap">
+        <svg class="mode-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+        <select id="viewport-mode-select" class="blender-select" data-tooltip="Switch Viewport Mode [Blender Object Mode]">
+          <option value="3d" selected>3D Simulation Viewport</option>
+          <option value="2d">2D South Pole Grid Map</option>
+        </select>
       </div>
 
       <div class="header-separator"></div>
@@ -83,6 +101,12 @@
         <span id="earth-status-text" class="box-value">EARTH: —</span>
       </div>
 
+      <!-- Real-time Countdowns & Ridge Margin (M4.2) -->
+      <div id="badge-countdown" class="telemetry-box" data-tooltip="Event countdowns and solar ridge margin (computed from ephemeris & horizon mask)">
+        <span class="box-label">TIMING:</span>
+        <span id="countdown-text" class="box-value">—</span>
+      </div>
+
       <!-- Raycast Agreement: filled only by the Web Worker's computed result -->
       <div class="telemetry-box" data-tooltip="Ray cast vs engine flags over the year, on hours the 30.7 km heightmap can check. Shows our code and conventions are consistent; terrain accuracy is checked against NASA Goddard maps and QuickMap.">
         <span class="box-label">RAYCAST:</span>
@@ -90,6 +114,18 @@
       </div>
     </div>
   </header>
+
+  <!-- Floating Notification Banners (M4.3) -->
+  <div id="notification-badges" class="notification-badges-container">
+    <div id="scale-warning-badge" class="floating-notice" style="display: none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="notice-icon"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+      <span id="scale-warning-text">Sun/Earth enlarged ×3 for visibility (true angular sizes 0.53° / 1.9°)</span>
+    </div>
+    <div id="walk-warning-badge" class="floating-notice" style="display: none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="notice-icon"><path d="M13 4v16M7 8l6-4 6 4M7 16l6 4 6-4"></path></svg>
+      <span id="walk-warning-text">Mask line is for the lander position; you are 65 m away</span>
+    </div>
+  </div>
 
   <!-- Critical Failure Alert Banner -->
   <div id="failure-banner" class="failure-banner" style="display: none;">
@@ -231,19 +267,23 @@
 
       <!-- Numerical Frame / Time Inputs -->
       <div class="frame-inputs">
-        <div class="field-item">
+        <div class="field-item" data-tooltip="Current simulation hour (0 to 8759 scrubbable across full year 2027)">
           <label>Hour</label>
-          <input type="number" id="frame-input" class="blender-num-input" min="0" max="0" value="0" />
+          <input type="number" id="frame-input" class="blender-num-input" min="0" max="8759" value="0" />
         </div>
-        <div class="field-item">
-          <label>Start</label>
+        <div class="field-item" data-tooltip="14-Day Mission Evaluation Window Start (Hour 0 + Launch Delay)">
+          <label>Win Start</label>
           <input type="number" id="window-start-input" class="blender-num-input" value="0" readonly />
         </div>
-        <div class="field-item">
-          <label>End</label>
-          <input type="number" id="window-end-input" class="blender-num-input" value="0" readonly />
+        <div class="field-item" data-tooltip="14-Day Mission Evaluation Window End (Hour 335 + Launch Delay)">
+          <label>Win End</label>
+          <input type="number" id="window-end-input" class="blender-num-input" value="335" readonly />
         </div>
-        <div class="field-item" data-tooltip="Launch delay in days (0-30). Moves the 14-day mission window.">
+        <div class="field-item" data-tooltip="Total simulation coverage: 8,760 hours (Full Year 2027)">
+          <label>Total</label>
+          <input type="number" id="total-hours-input" class="blender-num-input" value="8759" readonly />
+        </div>
+        <div class="field-item" data-tooltip="Launch delay in days (0-30). Shifts the 14-day mission window.">
           <label>Delay d</label>
           <input type="number" id="delay-input" class="blender-num-input" min="0" max="30" value="0" />
         </div>
@@ -307,6 +347,15 @@
       <span id="data-provenance-text">DATA: loading…</span>
     </div>
   </footer>
+
+  <!-- Blender-Style Dark Graphite Loading Screen -->
+  <div id="loading-overlay" class="loading-overlay" style="display: none;">
+    <div class="loading-modal">
+      <div class="loading-spinner"></div>
+      <div class="loading-title">LOADING LUNAR TOPOGRAPHY...</div>
+      <div id="loading-status-text" class="loading-subtitle">Streaming NASA Moon Trek LOLA Elevation & LROC WAC Imagery</div>
+    </div>
+  </div>
 
   <script type="module" src="./src/main.js"></script>
 </body>

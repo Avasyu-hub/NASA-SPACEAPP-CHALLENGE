@@ -58,6 +58,12 @@ body, html {
   justify-content: space-between;
   padding: 0 10px;
   z-index: 20;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.blender-header::-webkit-scrollbar {
+  display: none;
 }
 
 .header-left, .header-right {
@@ -390,6 +396,13 @@ body, html {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-wrap: nowrap;
+}
+
+.timeline-header-row::-webkit-scrollbar {
+  display: none;
 }
 
 .transport-group {
@@ -584,7 +597,429 @@ kbd {
 }
 
 .footer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-family: var(--font-mono);
   font-size: 9px;
-  opacity: 0.6;
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+/* ============================================================
+   Blender-Style Primary Viewport Dropdown
+   ============================================================ */
+.viewport-mode-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--blender-panel-sub);
+  border: 1px solid var(--blender-border);
+  border-radius: 4px;
+  padding: 0 4px 0 8px;
+}
+
+.viewport-mode-wrap .mode-icon-svg {
+  width: 14px;
+  height: 14px;
+  color: var(--blender-accent);
+}
+
+.viewport-mode-wrap .blender-select {
+  border: none;
+  background: transparent;
+  padding: 3px 6px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   2D South Pole Navigator Map View
+   ============================================================ */
+#map-2d-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  display: none;
+  pointer-events: none;
+}
+
+#map-2d-container.active {
+  display: block;
+  pointer-events: auto;
+}
+
+.map2d-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #121417;
+  overflow: hidden;
+}
+
+.map2d-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+.map2d-hud-header {
+  position: absolute;
+  top: 42px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  z-index: 15;
+  background: rgba(26, 28, 32, 0.90);
+  backdrop-filter: blur(8px);
+  padding: 5px 12px;
+  border: 1px solid #3a3e46;
+  border-radius: 4px;
+  color: #e0e0e0;
+}
+
+.map2d-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map2d-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--blender-accent);
+}
+
+.map2d-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--blender-text-bright);
+}
+
+.map2d-nav-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-left: 1px solid #3d424b;
+  padding-left: 10px;
+}
+
+.blender-tool-pill {
+  height: 20px;
+  padding: 0 7px;
+  background: #2a2d32;
+  border: 1px solid #3e434c;
+  border-radius: 3px;
+  color: #c0c5cc;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+}
+
+.blender-tool-pill:hover {
+  background: #373b42;
+  color: #fff;
+}
+
+/* 2D Inspector Floating Card */
+.map2d-inspector-card {
+  position: absolute;
+  top: 86px;
+  right: 18px;
+  z-index: 15;
+  width: 320px;
+  background: rgba(26, 28, 32, 0.94);
+  backdrop-filter: blur(12px);
+  border: 1px solid #3c414a;
+  border-radius: 5px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 10px 14px;
+  background: rgba(20, 22, 26, 0.85);
+  border-bottom: 1px solid #343840;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-tag {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 2px;
+  letter-spacing: 0.4px;
+}
+
+.badge-candidate {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.badge-sector {
+  background: rgba(235, 140, 40, 0.15);
+  color: #eb8c28;
+  border: 1px solid rgba(235, 140, 40, 0.4);
+}
+
+.card-sector-id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--blender-text-muted);
+}
+
+.card-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card-site-name {
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blender-text-bright);
+}
+
+.card-metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.metric-label {
+  color: var(--blender-text-muted);
+}
+
+.metric-value {
+  font-family: var(--font-mono);
+  color: var(--blender-text-bright);
+}
+
+.blender-action-btn {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: #eb8c28;
+  border: none;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.blender-action-btn:hover {
+  background: #f59633;
+}
+
+.blender-action-btn:active {
+  transform: scale(0.98);
+}
+
+.blender-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.card-tip {
+  font-size: 9px;
+  color: var(--blender-text-muted);
+  text-align: center;
+  margin-top: 2px;
+}
+
+/* 2D Status Bar at Bottom */
+.map2d-status-bar {
+  position: absolute;
+  bottom: 84px;
+  left: 14px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(22, 24, 28, 0.90);
+  backdrop-filter: blur(8px);
+  padding: 5px 12px;
+  border: 1px solid #363a42;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #bbb;
+}
+
+.status-item {
+  display: flex;
+  gap: 4px;
+}
+
+.status-item.hint {
+  color: var(--blender-accent);
+  margin-left: 8px;
+}
+
+/* Loading Overlay (Blender Dark Graphite) */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(18, 20, 24, 0.88);
+  backdrop-filter: blur(6px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.25s ease;
+}
+
+.loading-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: #24272c;
+  border: 1px solid #3d424b;
+  border-radius: 4px;
+  padding: 24px 32px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+  max-width: 420px;
+  text-align: center;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #363b44;
+  border-top-color: var(--blender-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  color: var(--blender-text-bright);
+}
+
+.loading-subtitle {
+  font-size: 11px;
+  color: var(--blender-text-muted);
+  line-height: 1.4;
+}
+
+/* Floating Notification Notices (M4.3) */
+.notification-badges-container {
+  position: absolute;
+  top: 42px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 25;
+  pointer-events: none;
+}
+
+.floating-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(26, 29, 34, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid #444b56;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.floating-notice .notice-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--blender-accent);
+}
+
+/* Moon Trek Style Floating Cursor Badge */
+.map2d-floating-badge {
+  position: absolute;
+  pointer-events: none;
+  z-index: 40;
+  background: rgba(18, 21, 26, 0.94);
+  backdrop-filter: blur(6px);
+  border: 1px solid #475569;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #cbd5e1;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+}
+
+.map2d-floating-badge .badge-tag {
+  color: var(--blender-accent);
+  font-weight: bold;
+  margin-right: 2px;
+}
+
+/* 2D HUD Ephemeris Readout */
+.map2d-ephem-readout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(24, 27, 32, 0.90);
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid #363c46;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.map2d-readout-time {
+  color: #94a3b8;
+}
+
+.map2d-readout-tag.tag-sun {
+  color: #facc15;
+}
+
+.map2d-readout-tag.tag-earth {
+  color: #38bdf8;
+}
+
