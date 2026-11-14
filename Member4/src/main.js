@@ -51,6 +51,10 @@ const btnLookSun = document.getElementById('btn-look-sun');
 const btnLookEarth = document.getElementById('btn-look-earth');
 const btnLookNorth = document.getElementById('btn-look-north');
 const btnJumpFailure = document.getElementById('btn-jump-failure');
+const windowStartInput = document.getElementById('window-start-input');
+const windowEndInput = document.getElementById('window-end-input');
+const delayInput = document.getElementById('delay-input');
+const frameTicks = document.getElementById('frame-ticks');
 
 // Initialize the 3D Lander Digital Twin Simulation
 const sim = new LanderSimulation(container, (telemetry) => {
@@ -78,7 +82,21 @@ const sim = new LanderSimulation(container, (telemetry) => {
     btnLookEarth.classList.remove('active');
   }
 
-  // Update Battery State-of-Charge Widget
+  // Mission window: slider / frame inputs follow it (no fixed hour counts).
+  const win = telemetry.window;
+  if (win && win.hours) {
+    const lo = win.startIdx, hi = win.endIdx - 1;
+    if (Number(timeSlider.min) !== lo || Number(timeSlider.max) !== hi) {
+      timeSlider.min = lo; timeSlider.max = hi;
+      frameInput.min = lo; frameInput.max = hi;
+      windowStartInput.value = lo; windowEndInput.value = hi;
+      frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
+        `<span>${Math.round(lo + (k * (hi - lo)) / 4)}</span>`).join('');
+    }
+  }
+  delayInput.value = telemetry.delayDays;
+
+  // Battery (missionLogic.batteryTrace; scenario assumption, not NASA data). "—" outside the window.
   if (telemetry.landerState) {
     const soc = telemetry.landerState.socPct;
     batteryBarFill.style.width = `${soc}%`;
@@ -91,30 +109,27 @@ const sim = new LanderSimulation(container, (telemetry) => {
     } else {
       batteryBarFill.style.backgroundColor = 'var(--blender-success)';
     }
-  }
-
-  // Update Sun Status Badge
-  if (telemetry.sunLitEngine) {
-    badgeSun.className = 'telemetry-box status-ok';
-    sunStatusText.textContent = 'SUN: OK';
   } else {
-    badgeSun.className = 'telemetry-box status-blocked';
-    sunStatusText.textContent = 'SUN: BLOCKED';
+    batteryBarFill.style.width = '0%';
+    batteryPctText.textContent = '—';
   }
 
-  // Update Earth Status Badge
-  if (telemetry.earthVisEngine) {
-    badgeEarth.className = 'telemetry-box status-ok';
-    earthStatusText.textContent = 'EARTH: OK';
-  } else {
-    badgeEarth.className = 'telemetry-box status-blocked';
-    earthStatusText.textContent = 'EARTH: BLOCKED';
-  }
+  // Sun / Earth badges: engine flag, independent ray-cast result in brackets.
+  const ray = (v) => (v ? 'ray: clear' : 'ray: blocked');
+  badgeSun.className = `telemetry-box ${telemetry.sunLitEngine ? 'status-ok' : 'status-blocked'}`;
+  sunStatusText.textContent = `SUN: ${telemetry.sunLitEngine ? 'OK' : 'BLOCKED'} (${ray(telemetry.sunLitRaycast)})`;
+  badgeEarth.className = `telemetry-box ${telemetry.earthVisEngine ? 'status-ok' : 'status-blocked'}`;
+  earthStatusText.textContent = `EARTH: ${telemetry.earthVisEngine ? 'OK' : 'BLOCKED'} (${ray(telemetry.earthVisRaycast)})`;
 
-  // Raycast agreement
-  raycastAgreementText.textContent = `${telemetry.agreementPct}%`;
+  // Ray-cast agreement: only computed results, never a typed-in number.
+  const fmt = (r) => (!r ? 'computing…' : r.error ? 'error'
+    : `${r.pct.toFixed(1)}% of ${r.checked} h${r.outOfGrid ? ` (+${r.outOfGrid} h beyond grid)` : ''}`);
+  const ag = telemetry.agreement || {};
+  raycastAgreementText.textContent = telemetry.isRealData
+    ? `Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`
+    : `synthetic: Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`;
 
-  // Failure Alert Banner
+  // Failure banner: text from missionLogic.failureMessage() on the engine flags.
   if (telemetry.failureEvent) {
     failureBanner.style.display = 'flex';
     failureBannerText.textContent = telemetry.failureEvent.message;
@@ -122,16 +137,27 @@ const sim = new LanderSimulation(container, (telemetry) => {
     failureBanner.style.display = 'none';
   }
 
-  // Data Provenance Label
+  // Data provenance label
   if (telemetry.isRealData) {
-    dataProvenanceText.textContent = `DATA: REAL NASA LOLA 5M/20M MOON_ME & HORIZONS · ${telemetry.siteId.toUpperCase()}`;
+    dataProvenanceText.textContent =
+      `DATA: NASA LOLA 5 m / 20 m terrain · JPL SPICE ephemeris (checked vs Horizons) · ${telemetry.siteName}`;
   } else {
-    dataProvenanceText.textContent = `DATA: SYNTHETIC PHASE-1 ENGINE · ${telemetry.siteId.toUpperCase()}`;
+    dataProvenanceText.textContent = `DATA: SYNTHETIC DEMO (data_out/ not found) · ${telemetry.siteId}`;
   }
 });
 
 // Set initial speed
 sim.setSpeed(Number(speedSelector.value));
+
+// Site list from data_out/sites.json (falls back to ids marked synthetic).
+sim.dataLoader.loadSites().then(({ sites }) => {
+  const current = siteSelector.value || 'site04';
+  siteSelector.innerHTML = sites
+    .map((s) => `<option value="${s.id}"${s.id === current ? ' selected' : ''}>${s.name}</option>`)
+    .join('');
+  sim.setHourIndex(sim.currentHourIndex);   // refresh names in labels/banner
+  if (sim.dataset) sim.setDelayDays(sim.mission.delayDays);
+});
 
 // Site Switching
 siteSelector.addEventListener('change', (e) => {
@@ -167,10 +193,16 @@ btnStepFwd.addEventListener('click', () => {
   sim.setHourIndex(sim.currentHourIndex + 1);
 });
 btnStepStart.addEventListener('click', () => {
-  sim.setHourIndex(0);
+  sim.setHourIndex(sim.dataset?.window?.startIdx ?? 0);
 });
 btnStepEnd.addEventListener('click', () => {
-  sim.setHourIndex(719);
+  const w = sim.dataset?.window;
+  sim.setHourIndex(w && w.hours ? w.endIdx - 1 : 0);
+});
+
+// Launch delay (days): moves the mission window; failure and battery are recomputed.
+delayInput.addEventListener('change', (e) => {
+  sim.setDelayDays(Number(e.target.value));
 });
 
 // Timeline Scrubbing Slider
@@ -182,7 +214,7 @@ timeSlider.addEventListener('input', (e) => {
 
 // Numerical Frame Input
 frameInput.addEventListener('change', (e) => {
-  const val = Math.max(0, Math.min(719, Number(e.target.value) || 0));
+  const val = Math.max(Number(timeSlider.min), Math.min(Number(timeSlider.max), Number(e.target.value) || 0));
   timeSlider.value = val;
   sim.setHourIndex(val);
 });

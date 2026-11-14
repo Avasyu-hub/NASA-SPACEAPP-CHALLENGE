@@ -7,13 +7,12 @@
 export class DataLoader {
   constructor(basePath = './data') {
     this.basePath = basePath;
-    this.availableSites = [
-      { id: 'site04', name: 'Shackleton Rim (Connecting Ridge)', lat: -89.9, lon: 129.0 },
-      { id: 'site01', name: 'Site 01 (De Gerlache Rim)', lat: -88.5, lon: -68.7 },
-      { id: 'site07', name: 'Site 07 (Malapert Massif Peak)', lat: -85.9, lon: -2.9 },
-      { id: 'site11', name: 'Site 11 (Haworth Crater Rim)', lat: -87.4, lon: -5.1 },
-      { id: 'site23', name: 'Site 23 (Amundsen Crater Rim)', lat: -84.5, lon: 85.6 },
-    ];
+    // Fallback when data_out/sites.json is not served: ids only, no names or coordinates,
+    // so nothing invented is shown next to a real site. Real values come from loadSites().
+    this.availableSites = ['site04', 'site01', 'site07', 'site11', 'site23'].map((id) => ({
+      id,
+      name: `${id} (synthetic demo terrain)`,
+    }));
   }
 
   /**
