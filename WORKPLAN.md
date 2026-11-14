@@ -38,7 +38,7 @@ the table in section 10 once agreed.
 | Piece | Owner | State |
 |---|---|---|
 | Terrain: 5 sites, 5 m + 20 m DEM to 200 km, masks for 0/2/5/10 m, near/far heightmaps | M2 | ✅ `data_out/sites.json`, `mask/`, `heightmap/` |
-| Ray-cast cross-check + Web Worker | M2 | ✅ `Member2/src/` (agreement 99.6–100% on checkable hours) |
+| Ray-cast cross-check + Web Worker | M2 | ✅ `Member2/src/` (agreement 99.7–100% on checkable hours) |
 | Sun/Earth angles, every hour of 2027, SPICE MOON_ME, checked vs Horizons (≤0.0005°) | M1 | ✅ `data_out/angles/` |
 | Hourly flags + yearly summary | M1 | ✅ `data_out/results/` |
 | Mission rules: window, delay, first failure, battery, ranking, messages | M1 | ✅ `web/src/core/missionLogic.js` (17 tests) |

@@ -37,6 +37,9 @@ def check_angles(rec, site):
             p.append(f"{k} has {len(rec[k])} values, t has {n}")
         if any(v != v for v in rec[k]):                      # NaN check
             p.append(f"{k} contains NaN")
+    for k in ("sun_az", "earth_az"):
+        if any(not 0 <= az < 360 for az in rec[k]):
+            p.append(f"{k} contains azimuth outside [0, 360)")
     if len(set(rec["t"])) != n:
         p.append("duplicate timestamps")
     bound = 1.54 + (90 - abs(site["lat"])) + 0.1
@@ -73,7 +76,7 @@ def build_site(site, times, angle_fn=None):
     rec = {"site": site["id"], "t": times}
     for body in ("sun", "earth"):
         az, el = angle_fn(site, body, times)
-        rec[f"{body}_az"] = [round(v, 3) for v in az]
+        rec[f"{body}_az"] = [round(v, 3) % 360.0 for v in az]
         rec[f"{body}_el"] = [round(v, 3) for v in el]
     rec["obs_height_m"] = site["obs_height_m"]
     rec["source"] = ("SPICE azlcpo, frame MOON_ME (moon_de440_220930.tf), ephemeris de440s.bsp, "

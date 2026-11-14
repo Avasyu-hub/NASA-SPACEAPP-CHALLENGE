@@ -458,7 +458,7 @@ export class TerrainMesh {
 
     this.buildMeshes();
     this.buildSolidPedestal();
-    this.buildExtendedCrust();
+    this.buildNeighborChunks();
     this.computeSlopeTexture();
   }
 
@@ -787,7 +787,7 @@ export class TerrainMesh {
 
     this.buildMeshes();
     this.buildSolidPedestal();
-    this.buildExtendedCrust();
+    this.buildNeighborChunks();
     this.computeSlopeTexture();
   }
 
@@ -812,7 +812,7 @@ export class TerrainMesh {
 
     this.buildMeshes();
     this.buildSolidPedestal();
-    this.buildExtendedCrust();
+    this.buildNeighborChunks();
     this.computeSlopeTexture();
   }
 

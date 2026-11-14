@@ -81,15 +81,17 @@ def to_markdown(rows):
            "Goddard: 18.6-year hourly average, surface level, 60 m pixel at the site point "
            "(3x3 range in brackets). Ours: 2027, hourly, 0 m and 2 m mast. diff = ours - Goddard "
            "(percentage points).", "",
-           "| Site | Goddard Sun % | Ours Sun 0 m | Ours Sun 2 m | diff 2 m | "
-           "Goddard Earth % | Ours Earth 0 m | Ours Earth 2 m | diff 2 m |",
-           "|---|---|---|---|---|---|---|---|---|"]
+           "| Site | Goddard Sun % | Ours Sun 0 m | diff 0 m | Ours Sun 2 m | diff 2 m | "
+           "Goddard Earth % | Ours Earth 0 m | diff 0 m | Ours Earth 2 m | diff 2 m |",
+           "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         out.append(
             f"| {r['name']} | {r['goddard_sun_pct']} ({r['goddard_sun_pct_3x3'][0]}–{r['goddard_sun_pct_3x3'][1]}) "
-            f"| {r['ours_sun_pct_0m']} | {r['ours_sun_pct_2m']} | {r['diff_sun_2m']:+} "
+            f"| {r['ours_sun_pct_0m']} | {r['diff_sun_0m']:+} | {r['ours_sun_pct_2m']} "
+            f"| {r['diff_sun_2m']:+} "
             f"| {r['goddard_earth_pct']} ({r['goddard_earth_pct_3x3'][0]}–{r['goddard_earth_pct_3x3'][1]}) "
-            f"| {r['ours_earth_pct_0m']} | {r['ours_earth_pct_2m']} | {r['diff_earth_2m']:+} |")
+            f"| {r['ours_earth_pct_0m']} | {r['diff_earth_0m']:+} | {r['ours_earth_pct_2m']} "
+            f"| {r['diff_earth_2m']:+} |")
     out += ["", "Likely reasons for differences (stated as likely, not proven): the 60 m pixel averages "
             "lower ground around these high points; different time span (18.6 years vs 2027); "
             "different observer height (Goddard is at the surface); Goddard counts Earth visible if any "

@@ -28,7 +28,7 @@ Plain-language notes for the methods page and the About panel. Numbers here come
 
 ## Checks
 - **Ray-cast agreement:** an independent ray-march in the browser (`Member2/src/raycast.js`)
-  agrees with the horizon in 99.6–100% of the checkable hours on all five sites. This shows the
+  agrees with the horizon in 99.7–100% of the checkable hours on all five sites. This shows the
   code and conventions are consistent (azimuth direction, axes, row order, curvature). It does
   **not** show the terrain itself is accurate.
 - **Skyline plots:** `docs/skylines/` shows each site's horizon with a year of Sun and Earth
@@ -42,7 +42,9 @@ Plain-language notes for the methods page and the About panel. Numbers here come
 - The horizon search reaches 200 km, except at Site 23, which reaches only about 181 km in some
   directions (edge of the 20 m map).
 - The 0 m horizon is dominated by the neighbouring 5 m pixels; use 2 m for results.
-- The Sun and Earth are treated as points (their centres); the time step is 1 hour.
+- Visibility flags use the Sun and Earth disc centres; `sun_frac` and `earth_frac` approximate
+  disc fractions against a locally flat horizon. Angles are sampled hourly for 2027, so the disc
+  fractions do not account for terrain-horizon changes across each body's disc.
 - "Earth visible" means a clear geometric line of sight, not a radio link calculation.
 - The 3D view's terrain reaches only 30.7 km from the lander. Ridges farther away are in the
   horizon line but not drawn as mountains (grey bands in the skyline plots).
