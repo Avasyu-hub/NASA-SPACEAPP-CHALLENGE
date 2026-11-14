@@ -6,9 +6,18 @@ import { HorizonOverlay } from './HorizonOverlay.js';
 import { CompassGrid } from './CompassGrid.js';
 import { generateFakeDataset, testRaycast } from '../core/fakeData.js';
 import { DataLoader } from '../core/dataLoader.js';
-import { LanderModel } from '../core/landerModel.js';
 import { bodyDirection } from '../core/math.js';
-import { missionWindow, firstFailure, failureMessage } from '../core/missionLogic.js';
+// One implementation of the mission rules, shared with the dashboard (M1, web/src/core).
+import { evaluate, failureMessage, batteryTrace } from '../../../web/src/core/missionLogic.js';
+
+// Mission defaults (goal.md 8.1 / 8.2 examples, addendum section 6). User inputs, not NASA values.
+const DEFAULT_MISSION = { delayDays: 0, durationDays: 14 };
+const DEFAULT_REQUIREMENTS = {
+  minSunPct: 40,
+  maxNightH: 36,
+  maxCommGapH: 24,
+  battery: { capacityWh: 1500, solarW: 250, loadW: 80 },   // scenario assumption, not NASA data
+};
 
 /**
  * LunaWise Lander Digital Twin Simulation
@@ -54,9 +63,10 @@ export class LanderSimulation {
     this.trackingTarget = null; // 'sun' | 'earth' | null
 
     this.dataLoader = new DataLoader();
-    this.landerModel = new LanderModel({ capacityWh: 1500, solarW: 250, loadW: 80 });
-    this.raycastWorker = null;
-    this.workerAgreementPct = '99.8';
+    this.mission = { ...DEFAULT_MISSION };
+    this.requirements = { ...DEFAULT_REQUIREMENTS };
+    this.rayWorkers = null;
+    this.agreement = { sun: null, earth: null };   // filled only by computed results
     this.currentSiteId = 'site04';
 
     this.initScene();
@@ -194,16 +204,65 @@ export class LanderSimulation {
     });
   }
 
+  /**
+   * M2's ray-cast agreement worker (Member2/src/raycastWorker.js), one per body: a reply does not
+   * say which body it is for, and replies can arrive in any order. It skips hours whose blocking
+   * terrain lies beyond the 30.7 km heightmap (the engine searches 200 km) and reports them as
+   * outOfGrid, so the percentage is over hours the ray cast can actually check.
+   */
   initRaycastWorker() {
     try {
-      this.raycastWorker = new Worker(new URL('../core/raycastWorker.js', import.meta.url), { type: 'module' });
-      this.raycastWorker.onmessage = (e) => {
-        const { overallAgreementPct } = e.data;
-        this.workerAgreementPct = overallAgreementPct;
-      };
+      this.rayWorkers = {};
+      for (const body of ['sun', 'earth']) {
+        // Keep new URL(...) inline in new Worker(...): that is the pattern Vite bundles.
+        const w = new Worker(new URL('../../../Member2/src/raycastWorker.js', import.meta.url),
+                             { type: 'module' });
+        w.onmessage = ({ data }) => {
+          if (data.siteId !== this.currentSiteId || !this.dataset?.isRealData) return; // stale
+          this.agreement[body] = data;     // { pct, checked, outOfGrid, ... } or { error }
+          this.setHourIndex(this.currentHourIndex);
+        };
+        this.rayWorkers[body] = w;
+      }
     } catch (err) {
-      console.warn('[LanderSimulation] Web Worker fallback to main thread raycaster.', err);
+      console.warn('[LanderSimulation] ray-cast worker unavailable; agreement not shown.', err);
+      this.rayWorkers = null;
     }
+  }
+
+  siteName(id) {
+    const s = (this.dataLoader.availableSites || []).find((x) => x.id === id);
+    return s ? s.name : id;
+  }
+
+  /**
+   * Mission window, first failure and battery for the current dataset, all from missionLogic.js
+   * (same functions as the dashboard). Nothing here is typed in.
+   */
+  evaluateMission() {
+    const d = this.dataset;
+    const results = { site: d.siteId, t: d.timestamps, sun_lit: d.sunLit, earth_vis: d.earthVis };
+    const ev = evaluate(results, { startDate: d.timestamps[0], ...this.mission }, this.requirements);
+    d.window = ev.window;
+    d.metrics = ev.metrics;
+    const f = ev.failure;
+    d.failure = f;
+    d.firstFailure = f && {
+      hourIndex: f.hourIndex,
+      durationHours: f.runH ?? 0,
+      kind: f.kind,
+      message: failureMessage(f, this.siteName(d.siteId)),
+      blockingAz: f.kind === 'comm' ? d.earthAz[f.hourIndex] : d.sunAz[f.hourIndex],
+    };
+    d.okMessage = f ? null : failureMessage(null, this.siteName(d.siteId));
+    d.battery = batteryTrace(results, ev.window, this.requirements.battery);
+  }
+
+  setDelayDays(days) {
+    if (!this.dataset) return;
+    this.mission.delayDays = Math.max(0, Math.min(30, Math.round(Number(days) || 0)));
+    this.evaluateMission();
+    this.setHourIndex(this.dataset.window.startIdx);
   }
 
   async loadDataset(siteId = 'site04') {
@@ -222,28 +281,6 @@ export class LanderSimulation {
       this.horizon.setFromMaskData(realResult.mask.elev_deg);
 
       const totalH = realResult.angles.sun_az.length;
-
-      // Evaluate ground-truth mission failure using M1's missionLogic
-      let failureInfo = null;
-      try {
-        const win = missionWindow(realResult.results, { durationDays: 365 });
-        const fail = firstFailure(realResult.results, win, { maxNightH: 24, maxCommGapH: 24 });
-        if (fail) {
-          const failAz = fail.kind === 'night'
-            ? (realResult.angles.sun_az[fail.hourIndex] || 0)
-            : (realResult.angles.earth_az[fail.hourIndex] || 0);
-          failureInfo = {
-            hourIndex: fail.hourIndex,
-            durationHours: fail.runH || 1,
-            blockingAz: failAz,
-            failType: fail.kind,
-            message: failureMessage(fail, siteId),
-          };
-        }
-      } catch (err) {
-        console.warn('[LanderSimulation] Error evaluating first failure:', err);
-      }
-
       this.dataset = {
         totalHours: totalH,
         siteId,
@@ -254,17 +291,29 @@ export class LanderSimulation {
         earthEl: new Float32Array(realResult.angles.earth_el),
         sunLit: new Uint8Array(realResult.results.sun_lit),
         earthVis: new Uint8Array(realResult.results.earth_vis),
-        agreementPct: '99.8',
-        firstFailure: failureInfo,
         isRealData: true,
       };
+      // Ray-cast agreement: computed by M2's worker, shown as "computing…" until it answers.
+      this.agreement = { sun: null, earth: null };
+      if (this.rayWorkers) {
+        // A worker resolves relative URLs against its own location, so pass an absolute base.
+        const basePath = new URL(this.dataLoader.basePath, document.baseURI).href;
+        for (const body of ['sun', 'earth']) {
+          const az = realResult.angles[`${body}_az`], el = realResult.angles[`${body}_el`];
+          const samples = az.map((a, k) => ({ az: a, el: el[k] }));
+          this.rayWorkers[body].postMessage({ basePath, siteId, mast: 2, samples });
+        }
+      }
     } else {
       // Re-generate distinct topography and dataset for this specific site
       this.terrain.generateProceduralTerrain(siteId);
       this.horizon.generateProceduralMask(this.terrain);
       this.dataset = generateFakeDataset(this.horizon, this.terrain, siteId);
       this.dataset.isRealData = false;
+      this.agreement = this.dataset.syntheticAgreement;
     }
+
+    this.evaluateMission();
 
     if (this.mode === 'overview') {
       if (this.terrain && this.terrain.nearMesh) this.terrain.nearMesh.visible = false;
@@ -275,22 +324,7 @@ export class LanderSimulation {
     // Reset lander walking position for the new site
     this.resetLanderPosition();
 
-    // Trigger background worker validation
-    if (this.raycastWorker && this.terrain.nearGrid) {
-      this.raycastWorker.postMessage({
-        sunAz: this.dataset.sunAz,
-        sunEl: this.dataset.sunEl,
-        earthAz: this.dataset.earthAz,
-        earthEl: this.dataset.earthEl,
-        sunLitEngine: this.dataset.sunLit,
-        earthVisEngine: this.dataset.earthVis,
-        nearGrid: this.terrain.nearGrid,
-        farGrid: this.terrain.farGrid,
-        obsHeightM: 2.0,
-      });
-    }
-
-    this.setHourIndex(0);
+    this.setHourIndex(this.dataset.window.startIdx);
   }
 
   sampleGroundHeight(x, z) {
@@ -330,8 +364,12 @@ export class LanderSimulation {
   }
 
   setHourIndex(index) {
-    if (!this.dataset) return;
-    this.currentHourIndex = Math.max(0, Math.min(this.dataset.totalHours - 1, index));
+    if (!this.dataset || !this.dataset.window) return;
+    const win = this.dataset.window;
+    // Replay stays inside the mission window (start date + delay + duration).
+    const lo = win.hours ? win.startIdx : 0;
+    const hi = win.hours ? win.endIdx - 1 : this.dataset.totalHours - 1;
+    this.currentHourIndex = Math.max(lo, Math.min(hi, Math.round(index)));
 
     const h = this.currentHourIndex;
     const sunAz = this.dataset.sunAz[h];
@@ -344,12 +382,25 @@ export class LanderSimulation {
     const raySun = testRaycast(sunAz, sunEl, this.terrain);
     const rayEarth = testRaycast(earthAz, earthEl, this.terrain);
 
-    const landerState = this.landerModel.getStateAtHour(h, this.dataset.sunLit, this.dataset.earthVis);
+    // Battery from missionLogic.batteryTrace (index 0 = landing hour = window start).
+    const bt = this.dataset.battery;
+    const i = h - win.startIdx;
+    const landerState = bt && i >= 0 && i < bt.socWh.length
+      ? { socWh: Math.round(bt.socWh[i]),
+          socPct: Math.round((100 * bt.socWh[i]) / bt.params.capacityWh),
+          commStatus: this.dataset.earthVis[h] === 1 ? 'ONLINE' : 'DISRUPTED',
+          params: bt.params }
+      : null;
+
+    const ff = this.dataset.firstFailure;
 
     this.onTelemetryUpdate({
       hourIndex: h,
       siteId: this.currentSiteId,
-      siteProfile: this.dataset.siteProfile,
+      siteName: this.siteName(this.currentSiteId),
+      window: win,
+      totalHours: this.dataset.totalHours,
+      delayDays: this.mission.delayDays,
       timestamp: this.dataset.timestamps[h],
       sunAz: sunAz.toFixed(1),
       sunEl: sunEl.toFixed(1),
@@ -359,11 +410,11 @@ export class LanderSimulation {
       earthVisEngine: this.dataset.earthVis[h] === 1,
       sunLitRaycast: raySun,
       earthVisRaycast: rayEarth,
-      agreementPct: this.workerAgreementPct || this.dataset.agreementPct,
-      failureEvent: (this.dataset.firstFailure && h >= this.dataset.firstFailure.hourIndex && h <= this.dataset.firstFailure.hourIndex + (this.dataset.firstFailure.durationHours || 1))
-        ? this.dataset.firstFailure
-        : null,
-      totalHours: this.dataset.totalHours,
+      agreement: this.agreement,
+      // Once a requirement breaks, the mission has failed: show the banner from that hour on.
+      failureEvent: ff && h >= ff.hourIndex ? ff : null,
+      firstFailure: ff,
+      okMessage: this.dataset.okMessage,
       landerState,
       isRealData: this.dataset.isRealData,
       trackingTarget: this.trackingTarget,
@@ -542,8 +593,9 @@ export class LanderSimulation {
       if (tickDelta >= interval) {
         this.lastTickTime = now;
         const step = Math.max(1, Math.floor(this.playbackSpeed / 10));
+        const win = this.dataset.window;
         let nextHour = this.currentHourIndex + step;
-        if (nextHour >= this.dataset.totalHours) nextHour = 0;
+        if (win && win.hours && nextHour >= win.endIdx) nextHour = win.startIdx;
         this.setHourIndex(nextHour);
       }
     }

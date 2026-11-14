@@ -25,12 +25,9 @@
 
       <!-- Site Dropdown Selector -->
       <div class="site-selector-wrap">
+        <!-- Options are filled from data_out/sites.json at startup (main.js). -->
         <select id="site-selector" class="blender-select">
-          <option value="site04" selected>Site 04 · Shackleton Rim (Connecting Ridge)</option>
-          <option value="site01">Site 01 · De Gerlache Crater Rim</option>
-          <option value="site07">Site 07 · Malapert Massif Peak</option>
-          <option value="site11">Site 11 · Haworth Crater Rim</option>
-          <option value="site23">Site 23 · Amundsen Crater Rim</option>
+          <option value="site04" selected>site04</option>
         </select>
       </div>
 
@@ -62,34 +59,34 @@
       </div>
 
       <!-- Battery SoC Widget -->
-      <div class="telemetry-box" data-tooltip="Lander Battery State-of-Charge">
+      <div class="telemetry-box" data-tooltip="Lander battery (scenario assumption, not NASA data: 1500 Wh, 250 W solar, 80 W load). Shown inside the mission window only.">
         <svg class="box-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect>
           <line x1="20" y1="11" x2="20" y2="13"></line>
         </svg>
         <span class="box-label">BAT:</span>
         <div class="battery-bar-wrap">
-          <div id="battery-bar-fill" class="battery-bar-fill" style="width: 100%;"></div>
+          <div id="battery-bar-fill" class="battery-bar-fill" style="width: 0%;"></div>
         </div>
-        <span id="battery-pct-text" class="box-value">100%</span>
+        <span id="battery-pct-text" class="box-value">—</span>
       </div>
 
-      <!-- Sun Status -->
-      <div id="badge-sun" class="telemetry-box status-ok" data-tooltip="Solar Array Illumination Line-of-Sight">
+      <!-- Sun Status (engine flag; ray-cast result in brackets) -->
+      <div id="badge-sun" class="telemetry-box" data-tooltip="Sun above the terrain horizon (engine). Ray-cast result in brackets.">
         <span class="status-indicator-dot"></span>
-        <span id="sun-status-text" class="box-value">SUN: OK</span>
+        <span id="sun-status-text" class="box-value">SUN: —</span>
       </div>
 
-      <!-- Earth Comms Status -->
-      <div id="badge-earth" class="telemetry-box status-ok" data-tooltip="Direct-to-Earth RF Line-of-Sight">
+      <!-- Earth Comms Status (engine flag; ray-cast result in brackets) -->
+      <div id="badge-earth" class="telemetry-box" data-tooltip="Earth above the terrain horizon (engine). Ray-cast result in brackets.">
         <span class="status-indicator-dot"></span>
-        <span id="earth-status-text" class="box-value">EARTH: OK</span>
+        <span id="earth-status-text" class="box-value">EARTH: —</span>
       </div>
 
-      <!-- Raycast Agreement -->
-      <div class="telemetry-box" data-tooltip="Off-Thread Raycast vs Engine Horizon Mask Agreement">
+      <!-- Raycast Agreement: filled only by the Web Worker's computed result -->
+      <div class="telemetry-box" data-tooltip="Ray cast vs engine flags over the year, on hours the 30.7 km heightmap can check. Shows our code and conventions are consistent; terrain accuracy is checked against NASA Goddard maps and QuickMap.">
         <span class="box-label">RAYCAST:</span>
-        <span id="raycast-agreement-text" class="box-value">99.8%</span>
+        <span id="raycast-agreement-text" class="box-value">—</span>
       </div>
     </div>
   </header>
@@ -103,7 +100,7 @@
     </svg>
     <div class="failure-msg-wrap">
       <span class="failure-title">MISSION FAILURE DETECTED</span>
-      <span id="failure-banner-text">Earth blocked for 41h starting 2027-01-06T04:00Z</span>
+      <span id="failure-banner-text"></span>
     </div>
   </div>
 
@@ -131,7 +128,9 @@
       </svg>
     </button>
 
-    <button id="btn-layer-rock" class="tool-btn tooltip-trigger" data-tooltip="Layer: Diviner Rock Abundance">
+    <!-- Hidden: this layer is procedural noise, not Diviner data. Re-enable only with the real
+         Diviner rock-abundance product loaded from data_out/. -->
+    <button id="btn-layer-rock" class="tool-btn tooltip-trigger" style="display: none;" data-tooltip="Layer: rock abundance (not available)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="6" cy="18" r="3"></circle>
         <circle cx="16" cy="16" r="4"></circle>
@@ -222,7 +221,7 @@
           </svg>
         </button>
 
-        <button id="btn-step-end" class="transport-btn tooltip-trigger" data-tooltip="Last Frame (Hour 719)">
+        <button id="btn-step-end" class="transport-btn tooltip-trigger" data-tooltip="Last hour of the mission window">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polygon points="5 4 15 12 5 20 5 4"></polygon>
             <line x1="19" y1="5" x2="19" y2="19"></line>
@@ -234,15 +233,19 @@
       <div class="frame-inputs">
         <div class="field-item">
           <label>Hour</label>
-          <input type="number" id="frame-input" class="blender-num-input" min="0" max="719" value="0" />
+          <input type="number" id="frame-input" class="blender-num-input" min="0" max="0" value="0" />
         </div>
         <div class="field-item">
           <label>Start</label>
-          <input type="number" class="blender-num-input" value="0" readonly />
+          <input type="number" id="window-start-input" class="blender-num-input" value="0" readonly />
         </div>
         <div class="field-item">
           <label>End</label>
-          <input type="number" id="timeline-end-val" class="blender-num-input" value="719" readonly />
+          <input type="number" id="window-end-input" class="blender-num-input" value="0" readonly />
+        </div>
+        <div class="field-item" data-tooltip="Launch delay in days (0-30). Moves the 14-day mission window.">
+          <label>Delay d</label>
+          <input type="number" id="delay-input" class="blender-num-input" min="0" max="30" value="0" />
         </div>
       </div>
 
@@ -259,10 +262,10 @@
 
       <!-- Ephemeris Readout -->
       <div class="timeline-ephemeris">
-        <span id="time-iso-text">2027-01-01T00:00:00Z</span>
+        <span id="time-iso-text">—</span>
         <span class="ephem-values">
-          SUN: <b id="sun-coords-text">120.4°, 1.5°</b> · 
-          EARTH: <b id="earth-coords-text">18.0°, 1.4°</b>
+          SUN: <b id="sun-coords-text">—</b> ·
+          EARTH: <b id="earth-coords-text">—</b>
         </span>
       </div>
 
@@ -283,19 +286,9 @@
 
     <!-- Scrubber Ruler & Slider -->
     <div class="timeline-scrubber-area">
-      <div class="frame-ticks">
-        <span>0</span>
-        <span>80</span>
-        <span>160</span>
-        <span>240</span>
-        <span>320</span>
-        <span>400</span>
-        <span>480</span>
-        <span>560</span>
-        <span>640</span>
-        <span>719</span>
-      </div>
-      <input type="range" id="time-slider" class="timeline-range" min="0" max="719" value="0" />
+      <!-- Tick labels and slider range are set from the loaded mission window (main.js). -->
+      <div id="frame-ticks" class="frame-ticks"></div>
+      <input type="range" id="time-slider" class="timeline-range" min="0" max="0" value="0" />
     </div>
   </div>
 
@@ -310,7 +303,8 @@
       <span class="keycap-hint"><kbd>Space</kbd> Play / Pause</span>
     </div>
     <div class="footer-right">
-      <span id="data-provenance-text">DATA: SYNTHETIC PHASE-1 ENGINE · AUTO-DETECTING DATA_OUT/</span>
+      <span class="keycap-hint" style="opacity: 0.8;">Visual aid. Numbers come from the engine; ray-cast shown for consistency check.</span>
+      <span id="data-provenance-text">DATA: loading…</span>
     </div>
   </footer>
 

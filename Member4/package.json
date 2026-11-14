@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "predev": "node -e \"fs.cpSync('../data_out', './public/data', {recursive: true})\"",
+    "sync-data": "node scripts/sync-data.mjs",
+    "predev": "node scripts/sync-data.mjs",
+    "prebuild": "node scripts/sync-data.mjs",
     "dev": "vite",
-    "prebuild": "node -e \"fs.cpSync('../data_out', './public/data', {recursive: true})\"",
     "build": "vite build",
     "preview": "vite preview"
   },
