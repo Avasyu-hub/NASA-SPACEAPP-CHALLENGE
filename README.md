@@ -3,7 +3,7 @@
 > **"The launch got delayed. Now what?"**
 > A web tool that compares lunar south pole landing sites and landing dates by when the Sun and Earth are actually visible above the real terrain.
 
-**Team OPUS** · NASA Space Apps Challenge 2026 · Challenge: *CLPS Lunar Mission Browser* · Kolkata local event · 14–15 November 2026
+**Team OPUS** · NASA Space Apps Challenge 2026 · · Kolkata local event · 14–15 November 2026
 
 ---
 
