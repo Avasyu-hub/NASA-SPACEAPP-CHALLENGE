@@ -5,6 +5,11 @@
  */
 
 export function generateFakeDataset(horizonOverlay, terrainMesh, siteId = 'site04') {
+  if (typeof horizonOverlay === 'string') {
+    siteId = horizonOverlay;
+    horizonOverlay = null;
+    terrainMesh = null;
+  }
   const totalHours = 720;
   const startTime = new Date('2027-01-01T00:00:00Z').getTime();
 
@@ -64,8 +69,12 @@ export function generateFakeDataset(horizonOverlay, terrainMesh, siteId = 'site0
     earthAz[h] = eAz;
     earthEl[h] = eEl;
 
-    const horizonAtSun = horizonOverlay.getHorizonElevation(sAz);
-    const horizonAtEarth = horizonOverlay.getHorizonElevation(eAz);
+    const horizonAtSun = (horizonOverlay && typeof horizonOverlay.getHorizonElevation === 'function')
+      ? horizonOverlay.getHorizonElevation(sAz)
+      : 0.0;
+    const horizonAtEarth = (horizonOverlay && typeof horizonOverlay.getHorizonElevation === 'function')
+      ? horizonOverlay.getHorizonElevation(eAz)
+      : 0.0;
 
     sunLit[h] = sEl > horizonAtSun ? 1 : 0;
     earthVis[h] = eEl > horizonAtEarth ? 1 : 0;
@@ -97,6 +106,7 @@ export function generateFakeDataset(horizonOverlay, terrainMesh, siteId = 'site0
 
 export function testRaycast(azDeg, elDeg, terrainMesh) {
   if (elDeg < -4.5) return false;
+  if (!terrainMesh) return elDeg > 0;
 
   const azRad = (azDeg * Math.PI) / 180;
   const elRad = (elDeg * Math.PI) / 180;

@@ -1,0 +1,13 @@
+/*
+  Access-Control-Allow-Origin: *
+  X-Content-Type-Options: nosniff
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/data/*
+  Cache-Control: public, max-age=3600
+  Access-Control-Allow-Origin: *
+
+/data/**/*.bin
+  Content-Type: application/octet-stream

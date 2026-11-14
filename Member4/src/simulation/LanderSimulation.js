@@ -141,9 +141,16 @@ export class LanderSimulation {
   initControls() {
     const dom = this.renderer.domElement;
 
-    // Pointer events for Mode A look-around
+    // Pointer events for Mode A look-around & overview tracking disengage
     dom.addEventListener('pointerdown', (e) => {
-      if (this.mode !== 'lander') return;
+      if (this.mode === 'overview') {
+        // In overview mode, if user manually clicks/drags to orbit, disengage celestial tracking
+        if (this.trackingTarget) {
+          this.trackingTarget = null;
+          this.setHourIndex(this.currentHourIndex);
+        }
+        return;
+      }
       this.isDragging = true;
       this.prevMouseX = e.clientX;
       this.prevMouseY = e.clientY;
@@ -636,7 +643,7 @@ export class LanderSimulation {
       this.trackingTarget = target;
     }
 
-    // Immediate orientation snap/pan toward target
+    // Immediate orientation snap/pan toward target preserving user's zoom & elevation angle
     if (this.trackingTarget === 'sun') {
       this.orientTowardsSun();
     } else if (this.trackingTarget === 'earth') {
@@ -653,11 +660,22 @@ export class LanderSimulation {
     this.setHourIndex(failure.hourIndex);
 
     if (this.mode === 'overview') {
-      // Preserve current orbit distance from target
-      const currentDist = this.camera.position.distanceTo(this.orbitControls.target) || 4500;
-      const dir = bodyDirection(failure.blockingAz, 0);
-      this.camera.position.set(-dir.x * currentDist, Math.max(currentDist * 0.35, 1200), -dir.z * currentDist);
-      this.orbitControls.target.set(0, 0, 0);
+      const targetPos = this.orbitControls.target;
+      const dx = this.camera.position.x - targetPos.x;
+      const dy = this.camera.position.y - targetPos.y;
+      const dz = this.camera.position.z - targetPos.z;
+      let currentDist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 4500;
+      currentDist = Math.max(10, Math.min(2500000, currentDist));
+
+      const sinEl = Math.max(0.04, dy / currentDist);
+      const cosEl = Math.sqrt(Math.max(0, 1.0 - sinEl * sinEl));
+      const azRad = (failure.blockingAz * Math.PI) / 180;
+
+      this.camera.position.set(
+        targetPos.x - Math.sin(azRad) * cosEl * currentDist,
+        targetPos.y + sinEl * currentDist,
+        targetPos.z + Math.cos(azRad) * cosEl * currentDist
+      );
       this.orbitControls.update();
     } else {
       this.targetYaw = (-failure.blockingAz * Math.PI) / 180;
@@ -671,14 +689,25 @@ export class LanderSimulation {
     const sEl = this.dataset.sunEl[h];
 
     if (this.mode === 'overview') {
-      const currentDist = this.camera.position.distanceTo(this.orbitControls.target) || 4500;
-      const sunDir = bodyDirection(sAz, sEl);
+      const targetPos = this.orbitControls.target;
+      const dx = this.camera.position.x - targetPos.x;
+      const dy = this.camera.position.y - targetPos.y;
+      const dz = this.camera.position.z - targetPos.z;
+
+      // Preserve the user's current orbit distance exactly (no resetting zoom)
+      let currentDist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 4500;
+      currentDist = Math.max(10, Math.min(2500000, currentDist));
+
+      // Preserve the user's current camera elevation / vertical angle above horizontal
+      const sinEl = Math.max(0.04, dy / currentDist);
+      const cosEl = Math.sqrt(Math.max(0, 1.0 - sinEl * sinEl));
+
+      const sAzRad = (sAz * Math.PI) / 180;
       this.camera.position.set(
-        -sunDir.x * currentDist,
-        Math.max(currentDist * 0.35, -sunDir.y * currentDist + 1200),
-        -sunDir.z * currentDist
+        targetPos.x - Math.sin(sAzRad) * cosEl * currentDist,
+        targetPos.y + sinEl * currentDist,
+        targetPos.z + Math.cos(sAzRad) * cosEl * currentDist
       );
-      this.orbitControls.target.set(0, 0, 0);
       this.orbitControls.update();
     } else {
       this.targetYaw = (-sAz * Math.PI) / 180;
@@ -692,14 +721,25 @@ export class LanderSimulation {
     const eEl = this.dataset.earthEl[h];
 
     if (this.mode === 'overview') {
-      const currentDist = this.camera.position.distanceTo(this.orbitControls.target) || 4500;
-      const earthDir = bodyDirection(eAz, eEl);
+      const targetPos = this.orbitControls.target;
+      const dx = this.camera.position.x - targetPos.x;
+      const dy = this.camera.position.y - targetPos.y;
+      const dz = this.camera.position.z - targetPos.z;
+
+      // Preserve the user's current orbit distance exactly (no resetting zoom)
+      let currentDist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 4500;
+      currentDist = Math.max(10, Math.min(2500000, currentDist));
+
+      // Preserve the user's current camera elevation / vertical angle above horizontal
+      const sinEl = Math.max(0.04, dy / currentDist);
+      const cosEl = Math.sqrt(Math.max(0, 1.0 - sinEl * sinEl));
+
+      const eAzRad = (eAz * Math.PI) / 180;
       this.camera.position.set(
-        -earthDir.x * currentDist,
-        Math.max(currentDist * 0.35, -earthDir.y * currentDist + 1200),
-        -earthDir.z * currentDist
+        targetPos.x - Math.sin(eAzRad) * cosEl * currentDist,
+        targetPos.y + sinEl * currentDist,
+        targetPos.z + Math.cos(eAzRad) * cosEl * currentDist
       );
-      this.orbitControls.target.set(0, 0, 0);
       this.orbitControls.update();
     } else {
       this.targetYaw = (-eAz * Math.PI) / 180;

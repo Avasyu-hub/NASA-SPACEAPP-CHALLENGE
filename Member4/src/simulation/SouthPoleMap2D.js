@@ -55,7 +55,8 @@ export class SouthPoleMap2D {
 
   async loadSitesFromData() {
     try {
-      const res = await fetch('./data/sites.json');
+      let res = await fetch('./data/sites.json');
+      if (!res.ok) res = await fetch('/data/sites.json');
       if (res.ok) {
         const sites = await res.json();
         this.candidateSites = sites.map((s) => {

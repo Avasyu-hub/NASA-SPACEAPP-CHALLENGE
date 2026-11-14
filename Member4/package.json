@@ -8,7 +8,7 @@
     "predev": "node scripts/sync-data.mjs",
     "prebuild": "node scripts/sync-data.mjs",
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/sync-data.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

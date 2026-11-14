@@ -19,14 +19,27 @@ export class DataLoader {
    * Attempts to load master site registry
    */
   async loadSites() {
-    try {
-      const resp = await fetch(`${this.basePath}/sites.json`);
+    const tryLoad = async (base) => {
+      const resp = await fetch(`${base}/sites.json`);
       if (resp.ok) {
         this.availableSites = await resp.json();
         return { isReal: true, sites: this.availableSites };
       }
+      return null;
+    };
+
+    try {
+      const res = await tryLoad(this.basePath);
+      if (res) return res;
+      if (this.basePath.startsWith('.')) {
+        const res2 = await tryLoad('/data');
+        if (res2) return res2;
+      }
     } catch {
-      // Fallback
+      try {
+        const res2 = await tryLoad('/data');
+        if (res2) return res2;
+      } catch {}
     }
     return { isReal: false, sites: this.availableSites };
   }
@@ -39,12 +52,12 @@ export class DataLoader {
    * - heightmap/<site>.json + near.bin + far.bin
    */
   async loadSiteData(siteId = 'site04') {
-    try {
+    const tryLoad = async (base) => {
       const [anglesResp, maskResp, resultsResp, hmMetaResp] = await Promise.all([
-        fetch(`${this.basePath}/angles/${siteId}.json`),
-        fetch(`${this.basePath}/mask/${siteId}.json`),
-        fetch(`${this.basePath}/results/${siteId}.json`),
-        fetch(`${this.basePath}/heightmap/${siteId}.json`),
+        fetch(`${base}/angles/${siteId}.json`),
+        fetch(`${base}/mask/${siteId}.json`),
+        fetch(`${base}/results/${siteId}.json`),
+        fetch(`${base}/heightmap/${siteId}.json`),
       ]);
 
       if (anglesResp.ok && maskResp.ok && resultsResp.ok && hmMetaResp.ok) {
@@ -54,8 +67,8 @@ export class DataLoader {
         const hmMeta = await hmMetaResp.json();
 
         // Fetch binary heightmaps
-        const nearBinUrl = `${this.basePath}/heightmap/${hmMeta.near.file}`;
-        const farBinUrl = `${this.basePath}/heightmap/${hmMeta.far.file}`;
+        const nearBinUrl = `${base}/heightmap/${hmMeta.near.file}`;
+        const farBinUrl = `${base}/heightmap/${hmMeta.far.file}`;
 
         const [nearBinResp, farBinResp] = await Promise.all([
           fetch(nearBinUrl),
@@ -79,6 +92,16 @@ export class DataLoader {
             },
           };
         }
+      }
+      return null;
+    };
+
+    try {
+      const res = await tryLoad(this.basePath);
+      if (res) return res;
+      if (this.basePath.startsWith('.')) {
+        const res2 = await tryLoad('/data');
+        if (res2) return res2;
       }
     } catch (err) {
       console.warn(`[DataLoader] Real data for ${siteId} not present. Running on procedural engine.`, err);
