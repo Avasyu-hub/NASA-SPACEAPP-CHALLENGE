@@ -88,8 +88,11 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--site", action="append", help="default: all sites")
     p.add_argument("--out", default=str(OUT))
+    p.add_argument("--sites", default=None,
+                   help="sites file (default data_out/sites.json); e.g. data_out/nearby.json for "
+                        "M2's computed nearby points")
     a = p.parse_args(argv)
-    sites = hc.load_sites()
+    sites = hc.load_sites(a.sites) if a.sites else hc.load_sites()
     ids = a.site or list(sites)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

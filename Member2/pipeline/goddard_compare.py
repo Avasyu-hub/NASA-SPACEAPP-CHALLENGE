@@ -102,16 +102,20 @@ def to_markdown(rows):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--local", help="folder with the two .TIF maps (default: read COGs over HTTP)")
+    ap.add_argument("--sites", default="sites.json",
+                    help="points file in data_out/ (e.g. nearby.json for M2's nearby points)")
+    ap.add_argument("--name", default="goddard_terrain",
+                    help="output base name in docs/validation/ (e.g. goddard_nearby)")
     args = ap.parse_args()
-    sites = json.loads((ROOT / "data_out" / "sites.json").read_text())
+    sites = json.loads((ROOT / "data_out" / args.sites).read_text())
     rows = compare(sites, ROOT / "data_out" / "results",
                    lambda k: rasterio.open(map_path(k, args.local)))
     out = ROOT / "docs" / "validation"
     out.mkdir(parents=True, exist_ok=True)
-    (out / "goddard_terrain.json").write_text(json.dumps(rows, indent=2))
-    (out / "goddard_terrain.md").write_text(to_markdown(rows), encoding="utf-8")
+    (out / f"{args.name}.json").write_text(json.dumps(rows, indent=2))
+    (out / f"{args.name}.md").write_text(to_markdown(rows), encoding="utf-8")
     print(to_markdown(rows))
-    print("wrote docs/validation/goddard_terrain.json and .md")
+    print(f"wrote docs/validation/{args.name}.json and .md")
 
 
 if __name__ == "__main__":

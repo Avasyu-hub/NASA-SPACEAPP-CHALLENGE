@@ -58,3 +58,59 @@ npm test                                # ray-cast checks, incl. agreement on th
 
 The far IMG is opened through its `.LBL`. Values are **km** above 1737.4 km; GDAL reports OFFSET = 1737.4,
 which must not be added (handled in `pipeline/export.py`).
+
+## Nearby points ("custom coordinates", WORKPLAN M2.7)
+
+The challenge asks for custom coordinates and for showing why small moves matter. A live horizon
+needs the 3.7 GB DEM, which a static site can't do, so we **precompute real alternatives**: 4 points
+1 km north/east/south/west of each site (20 points), with the same pipeline as the sites
+(5 m + 20 m DEM to 200 km, SPICE angles, M1's `combine.py`). `README.md` rule 4: only these
+computed points may be offered. Never show numbers for a spot that wasn't computed.
+
+**Files (separate from `sites.json`, so the site picker is unchanged):**
+
+| File | Contents |
+|---|---|
+| `data_out/nearby.json` | list like `sites.json` plus `parent`, `offset_bearing_deg`, `offset_dist_m`, `lander_offset_m` `[east, north]` in metres from the parent lander, `heightmap_of` (= parent id) |
+| `data_out/mask/<id>.json` | real horizon for the point (same format as the sites, plus `parent`) |
+| `data_out/angles/<id>.json`, `data_out/results/<id>.json` | M1's SPICE angles and hourly flags for the point |
+
+Ids look like `site04_w1km`. There are **no heightmaps per point**. Each point lies inside the parent's
+5.12 km near grid, so the 3D view loads the parent heightmap and puts the lander at
+`lander_offset_m` (`test_nearby.py` checks that this offset lands on the right terrain).
+
+**What 1 km does** (2027, 2 m mast, sun % / Earth %):
+
+| Site | at the site | 1 km N | 1 km E | 1 km S | 1 km W |
+|---|---|---|---|---|---|
+| site01 | 86.1 / 51.1 | 58.8 / 26.8 | 44.7 / 51.0 | 34.9 / 50.8 | 34.9 / 0.0 |
+| site04 | 80.2 / 43.4 | 32.6 / 35.5 | 30.4 / 32.5 | 44.5 / 21.6 | 28.6 / 3.2 |
+| site07 | 82.6 / 50.5 | 53.0 / 29.9 | 52.8 / 23.1 | 29.2 / 48.1 | 45.1 / 55.6 |
+| site11 | 83.0 / 54.9 | 9.4 / 0.0 | 43.8 / 54.6 | 74.3 / 55.0 | 45.7 / 0.0 |
+| site23 | 74.9 / 61.3 | 44.3 / 100.0 | 43.8 / 67.8 | 36.6 / 23.5 | 57.5 / 58.5 |
+
+**Independent check:** NASA Goddard's PGDA 69 Sun map, sampled at the same 20 points, shows the same
+drop-offs (e.g. site11 1 km N: Goddard 3.7%, ours 6.9% at 0 m / 9.4% at 2 m). Correlation with
+our 0 m values is r = 0.78, with a median difference of 5.4 points. The site points were chosen as
+PGDA's best-lit regions, so most nearby points are worse; that is the expected "small move, big
+change" result, not an error.
+
+**Rebuild** (from the repo root; needs `data_raw/` and M1's SPICE kernels):
+```
+cd Member2; py -m pipeline.export --all --nearby 1000                 # masks + data_out/nearby.json (~80 s)
+cd ../Member1; py -m pipeline.make_angles --sites ../data_out/nearby.json   # SPICE angles (~10 s)
+py -m pipeline.combine --site site01_n1km --site site01_e1km ...       # every id in nearby.json
+```
+
+**For M4 (2D map / "custom expedition") and M3:**
+1. Load `nearby.json` together with `sites.json`.
+2. When the user clicks on the map, find the nearest computed point (a site or a nearby point).
+   - **Within 600 m:** snap to it and show its real `angles/`, `results/` and `mask/`.
+   - **Farther:** show "not computed here: nearest computed point is X km away" and **no** Sun/Earth
+     numbers. This replaces `computeCustomEphemeris()`: that formula is off from SPICE by a median
+     91° in Sun azimuth and 4.8° in Earth elevation at site04.
+3. 3D view for a nearby point: load `heightmap/<heightmap_of>.json` and move the lander to
+   `lander_offset_m` (x = east, z = −north in the Three.js scene).
+   - The mask line and the Sun/Earth come from the nearby point's own files.
+   - The in-browser ray-cast check assumes the lander is at the grid centre, so show it as "n/a
+     (offset point)" for nearby points, or offset the ray origin by `lander_offset_m`.
