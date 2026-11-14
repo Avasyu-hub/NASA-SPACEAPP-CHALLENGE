@@ -1,0 +1,65 @@
+# Builds the LunaWise web app and publishes it to GitHub Pages on every push to main.
+#
+# What gets deployed: Member4/ (the app). Its build pulls in the other members' work:
+#   - web/src/core/missionLogic.js   (M1: delay window, first failure, battery, countdowns)
+#   - Member2/src/raycast*.js        (M2: independent ray-cast check, bundled as a Web Worker)
+#   - data_out/                      (M1 + M2 data: sites, nearby points, masks, heightmaps,
+#                                     angles, results, validation; copied to dist/data by prebuild)
+# No backend: the site is static files only.
+#
+# One-time setup by the repo owner: Settings -> Pages -> Build and deployment -> Source = "GitHub Actions".
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: Member4/package-lock.json
+      - name: Install
+        working-directory: Member4
+        run: npm ci
+      - name: Mission-logic and ray-cast tests (M1, M2)
+        run: |
+          node --test web/tests/missionLogic.test.js
+          node --test Member2/tests/raycast.test.js
+      - name: Build (prebuild copies data_out -> public/data)
+        working-directory: Member4
+        run: npm run build
+      - name: Check the data made it into the site
+        run: |
+          for f in sites.json nearby.json validation.json results/site04.json heightmap/site04_near.bin; do
+            test -s "Member4/dist/data/$f" || { echo "missing dist/data/$f"; exit 1; }
+          done
+          du -sh Member4/dist
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: Member4/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
