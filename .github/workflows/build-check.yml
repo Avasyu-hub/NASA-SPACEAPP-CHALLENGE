@@ -1,28 +1,22 @@
-# Builds the LunaWise web app and publishes it to GitHub Pages on every push to main.
+# Build check on every push / pull request: runs the M1 mission-logic and M2 ray-cast tests,
+# builds the Member4 app (prebuild copies data_out -> public/data) and checks the data is in it.
+# Deployment is done by Cloudflare Pages (see README "Deploy"), not by this workflow.
 #
-# What gets deployed: Member4/ (the app). Its build pulls in the other members' work:
+# What gets built: Member4/ (the app). Its build pulls in the other members' work:
 #   - web/src/core/missionLogic.js   (M1: delay window, first failure, battery, countdowns)
 #   - Member2/src/raycast*.js        (M2: independent ray-cast check, bundled as a Web Worker)
 #   - data_out/                      (M1 + M2 data: sites, nearby points, masks, heightmaps,
-#                                     angles, results, validation; copied to dist/data by prebuild)
-# No backend: the site is static files only.
-#
-# One-time setup by the repo owner: Settings -> Pages -> Build and deployment -> Source = "GitHub Actions".
-name: Deploy to GitHub Pages
+#                                     angles, results, validation)
+name: Build check
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch: {}
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
 
 jobs:
   build:
@@ -49,17 +43,4 @@ jobs:
           for f in sites.json nearby.json validation.json results/site04.json heightmap/site04_near.bin; do
             test -s "Member4/dist/data/$f" || { echo "missing dist/data/$f"; exit 1; }
           done
-          du -sh Member4/dist
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: Member4/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          echo "files: $(find Member4/dist -type f | wc -l)"; du -sh Member4/dist
