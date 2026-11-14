@@ -1,7 +1,7 @@
 // Member 2: Web Worker that runs the full ray-cast agreement check off the main thread
 // (goal.md H10-H12).
 //   const w = new Worker(new URL("./raycastWorker.js", import.meta.url), { type: "module" });
-//   w.postMessage({ basePath: "./data", siteId: "site04", mast: 2, samples: [{az, el}, ...] });
+//   w.postMessage({ basePath: new URL("./data", document.baseURI).href, siteId: "site04", mast: 2, samples: [{az, el}, ...] });
 //   w.onmessage = (e) => e.data  // { siteId, mast, n, checked, outOfGrid, agree, pct, mismatches }
 // `samples` is typically every hour of the Sun and Earth tracks from data_out/angles/<site>.json.
 import { loadTerrain, agreement } from "./raycast.js";
