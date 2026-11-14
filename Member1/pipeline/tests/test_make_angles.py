@@ -32,6 +32,10 @@ def test_build_site_follows_contract():
     assert rec["site"] == "site04"
     assert all(len(rec[k]) == 8760 for k in ("sun_az", "sun_el", "earth_az", "earth_el"))
     assert all(0 <= a < 360 for a in rec["sun_az"] + rec["earth_az"])
+    def boundary_angles(site, body, times):
+        return ([360.0, -0.0004] + [12.3456] * (len(times) - 2), [0.0] * len(times))
+    wrapped = ma.build_site(SITE04, ma.hourly_times(), angle_fn=boundary_angles)
+    assert wrapped["sun_az"][:3] == [0.0, 0.0, 12.346]
     json.dumps(rec)                                      # serialisable
 
 
@@ -44,9 +48,11 @@ def test_checks_catch_bad_data():
     rec = ma.build_site(SITE04, ma.hourly_times(), angle_fn=fake_angles)
     rec["sun_el"][100] = 4.0                             # impossible at Shackleton (> 1.8 deg)
     rec["earth_az"] = rec["earth_az"][:-1]               # length mismatch
+    rec["earth_az"][0] = 360.0                           # azimuth range is [0, 360)
     rec["t"][5] = rec["t"][4]                            # duplicate hour
     p = " | ".join(ma.check_angles(rec, SITE04))
-    assert "geometric limit" in p and "earth_az has" in p and "duplicate" in p
+    assert ("geometric limit" in p and "earth_az has" in p and "azimuth outside" in p
+            and "duplicate" in p)
 
 
 def test_checks_catch_wrong_sun_rate():

@@ -48,8 +48,11 @@ def test_values_and_diffs(tmp_path):
     rows = compare(sites, res, lambda k: rasterio.open(maps[k]))
     r = rows[0]
     assert r["goddard_sun_pct"] == 65.0 and r["goddard_earth_pct"] == 45.0
-    assert r["diff_sun_2m"] == 5.0 and r["diff_earth_0m"] == -15.0
-    assert "Test site" in to_markdown(rows)
+    assert r["diff_sun_0m"] == -15.0 and r["diff_sun_2m"] == 5.0
+    assert r["diff_earth_0m"] == -15.0 and r["diff_earth_2m"] == -5.0
+    markdown = to_markdown(rows)
+    assert "Test site" in markdown and "diff 0 m" in markdown
+    assert "| 50.0 | -15.0 | 70.0 | +5.0 |" in markdown
 
 
 def test_int16_with_scale_metadata(tmp_path):

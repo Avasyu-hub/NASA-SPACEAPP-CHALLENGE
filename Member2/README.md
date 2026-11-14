@@ -8,10 +8,10 @@ the contract in `goal.md` section 5.2. Raw NASA rasters stay out of git (`data_r
 From `Member2/`:
 
 ```powershell
-py -m pip install numpy rasterio pyproj pytest
-py -m pytest pipeline/tests -q          # 11 tests, synthetic DEMs (no downloads needed)
+py -m pip install -r ..\requirements.txt
+py -m pytest pipeline/tests -q          # 14 tests, synthetic DEMs (no downloads needed)
 py -m pipeline.export --all             # all 5 sites, about 1 minute; needs data_raw/ (below)
-node --test tests/                      # ray-cast checks, incl. agreement on the real data_out/
+npm test                                # ray-cast checks, incl. agreement on the real data_out/
 ```
 
 `--data-raw <folder>` points at a `data_raw/` somewhere else. `--site site04` runs one site.
