@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pipeline.horizon import DEMSampler, LayeredSampler, compute_horizons, team_grid
+from pipeline.horizon import DEMSampler, LayeredSampler, compute_horizons, destination, team_grid
 from pipeline.roi import read_rois
 
 M2 = Path(__file__).resolve().parent.parent
@@ -79,23 +79,24 @@ def site_point(cfg, near, data_raw):
     raise ValueError(f"{cfg['id']}: needs 'roi' or 'illum' in sites_config.json")
 
 
-def run_site(cfg, data_raw, out, max_km=200.0):
+def open_site(cfg, data_raw, max_km=200.0):
+    """Near DEM, site point, far DEM (windowed around the site) and the layered sampler."""
     near = DEMSampler(data_raw / cfg["dem"], label=Path(cfg["dem"]).name)
-    R = near.R
     cx, cy, how = site_point(cfg, near, data_raw)
-    lat0, lon0 = near.latlon(cx, cy)
-    h0 = float(near.sample_xy(cx, cy))
-
     fpath, fargs = far_open_args(data_raw / cfg["far"])
     far = DEMSampler(fpath, label=Path(cfg["far"]).name, window_xy=(cx, cy),
                      window_m=max_km * 1000.0 + 10_000.0, **fargs)
-    if abs(far.R - R) > 1.0:
-        raise ValueError(f"radius mismatch near {R} vs far {far.R}")
+    if abs(far.R - near.R) > 1.0:
+        raise ValueError(f"radius mismatch near {near.R} vs far {far.R}")
     ov = overlap_check(near, far)
     if abs(ov["median_m"]) > 50:
         raise ValueError(f"far DEM disagrees with near tile: {ov} (units or datum wrong?)")
-    sampler = LayeredSampler([near, far])
+    return near, far, LayeredSampler([near, far]), ov, (cx, cy, how)
 
+
+def write_mask(point_id, lat0, lon0, h0, near, far, sampler, ov, out, max_km=200.0, extra=None):
+    """Horizon masks for one observer point -> data_out/mask/<point_id>.json. Returns (hz360, reach_km)."""
+    R = near.R
     res = compute_horizons(lat0, lon0, h0, MASTS, sampler, pixel_m=near.res_m,
                            max_m=max_km * 1000.0, dense_m=near.reach_m(lat0, lon0), R=R)
     reach_km = res["valid_reach_m"] / 1000.0
@@ -103,11 +104,9 @@ def run_site(cfg, data_raw, out, max_km=200.0):
     hz360 = {k: v[::2] for k, v in hz720.items()}               # exact azimuths 0,1,...,359
     dist360 = {str(m): [round(float(v) / 1000, 3) for v in res["horizon_dist_m"][m][::2]]
                for m in MASTS}
-    lon_pm = (lon0 + 180) % 360 - 180
-
     (out / "mask").mkdir(parents=True, exist_ok=True)
-    (out / "mask" / f"{cfg['id']}.json").write_text(json.dumps({
-        "site": cfg["id"], "obs_height_m": float(NOMINAL_MAST), "az_step_deg": 1.0,
+    (out / "mask" / f"{point_id}.json").write_text(json.dumps({
+        "site": point_id, "obs_height_m": float(NOMINAL_MAST), "az_step_deg": 1.0,
         "elev_deg": hz360[str(NOMINAL_MAST)],
         "elev_deg_by_mast": hz360,
         "elev_deg_720_by_mast": hz720,
@@ -116,7 +115,64 @@ def run_site(cfg, data_raw, out, max_km=200.0):
         "dem": {"near": near.label, "far": far.label, "far_minus_near": ov, "pixel_m": near.res_m},
         "method": "max 3D elevation angle over geodesic samples (every 5 m pixel in the near tile, "
                   "then max(5 m, 0.5% of distance)) to 200 km, sphere R=1737.4 km",
+        **(extra or {}),
     }))
+    return hz360, reach_km
+
+
+# Nearby points: real, fully computed alternatives around each site (README rule 4: never
+# suggest a location that was not computed). Bearings are clockwise from north, as everywhere.
+NEARBY_DIRS = (("n", "north", 0.0), ("e", "east", 90.0), ("s", "south", 180.0), ("w", "west", 270.0))
+
+
+def nearby_points(cfg, data_raw, out, dist_m=1000.0, max_km=200.0):
+    """Masks for points dist_m N/E/S/W of the site. No heightmaps: each point lies inside the
+    parent's 5.12 km near grid, so the 3D view reuses the parent heightmap with the lander moved
+    to `lander_offset_m`. Returns the data_out/nearby.json entries."""
+    near, far, sampler, ov, (cx, cy, _how) = open_site(cfg, data_raw, max_km)
+    lat_p, lon_p = near.latlon(cx, cy)
+    if dist_m > NEAR["n"] * NEAR["cell_m"] / 2 - 2 * NEAR["cell_m"]:
+        raise ValueError(f"{dist_m} m is outside the parent's near heightmap")
+    entries = []
+    for tag, word, az in NEARBY_DIRS:
+        lat, lon = destination(lat_p, lon_p, az, dist_m, near.R)
+        lat, lon = float(lat), float(lon)
+        x, y = near.xy(lat, lon)
+        h = float(near.sample_xy(x, y))
+        if not np.isfinite(h):
+            raise ValueError(f"{cfg['id']} {word}: no 5 m DEM at the offset point")
+        pid = f"{cfg['id']}_{tag}{dist_m / 1000:g}km"
+        east = round(dist_m * float(np.sin(np.radians(az))), 3)
+        north = round(dist_m * float(np.cos(np.radians(az))), 3)
+        hz360, reach = write_mask(pid, lat, lon, h, near, far, sampler, ov, out, max_km,
+                                  extra={"parent": cfg["id"]})
+        entries.append({
+            "id": pid,
+            "name": f"{cfg['name']} · {dist_m / 1000:g} km {word}",
+            "parent": cfg["id"],
+            "lat": round(lat, 6), "lon": round((lon + 180) % 360 - 180, 6),
+            "ground_height_m": round(h, 2), "obs_height_m": float(NOMINAL_MAST),
+            "offset_bearing_deg": az, "offset_dist_m": dist_m,
+            "lander_offset_m": [east, north],          # east, north from the parent lander
+            "heightmap_of": cfg["id"],
+            "source_file": near.label,
+            "description": (f"Computed point {dist_m / 1000:g} km {word} of {cfg['id']}: same terrain "
+                            f"pipeline (5 m + 20 m DEM to 200 km). 3D view: {cfg['id']}'s heightmap."),
+        })
+        h2 = hz360[str(NOMINAL_MAST)]
+        print(f"  {pid}: lat {lat:.6f} lon {lon:.6f} ground {h:.1f} m "
+              f"(parent {float(near.sample_xy(cx, cy)):.1f} m); 2 m horizon min {min(h2):.2f} "
+              f"median {float(np.median(h2)):.2f} max {max(h2):.2f}; search {reach.min():.0f} km")
+    return entries
+
+
+def run_site(cfg, data_raw, out, max_km=200.0):
+    near, far, sampler, ov, (cx, cy, how) = open_site(cfg, data_raw, max_km)
+    R = near.R
+    lat0, lon0 = near.latlon(cx, cy)
+    h0 = float(near.sample_xy(cx, cy))
+    hz360, reach_km = write_mask(cfg["id"], lat0, lon0, h0, near, far, sampler, ov, out, max_km)
+    lon_pm = (lon0 + 180) % 360 - 180
 
     hdir = out / "heightmap"
     hdir.mkdir(parents=True, exist_ok=True)
@@ -147,12 +203,30 @@ def main():
     p.add_argument("--data-raw", default=str(REPO / "data_raw"))
     p.add_argument("--out", default=str(REPO / "data_out"))
     p.add_argument("--max-km", type=float, default=200.0)
+    p.add_argument("--nearby", type=float, metavar="METRES",
+                   help="instead of the sites themselves, compute N/E/S/W points this far from each "
+                        "site -> data_out/nearby.json + mask/<site>_<dir><km>km.json")
     a = p.parse_args()
     cfgs = json.loads((M2 / "pipeline" / "sites_config.json").read_text())["sites"]
     todo = cfgs if a.all else [c for c in cfgs if c["id"] in a.site]
     if not todo:
         p.error("give --all or --site <id>")
     data_raw, out = Path(a.data_raw), Path(a.out)
+
+    if a.nearby:
+        npath = out / "nearby.json"
+        nearby = {e["id"]: e for e in json.loads(npath.read_text())} if npath.exists() else {}
+        for cfg in todo:
+            print(f"{cfg['id']}: nearby points at {a.nearby:g} m")
+            for e in nearby_points(cfg, data_raw, out, a.nearby, a.max_km):
+                nearby[e["id"]] = e
+        order = {c["id"]: i for i, c in enumerate(cfgs)}
+        dirs = {t: i for i, (t, _w, _a) in enumerate(NEARBY_DIRS)}
+        npath.write_text(json.dumps(sorted(nearby.values(), key=lambda e: (
+            order.get(e["parent"], 99), e["offset_dist_m"],
+            dirs.get(e["id"].split("_")[-1][0], 9))), indent=2))
+        print(f"wrote {npath} ({len(nearby)} points)")
+        return
 
     sites_path = out / "sites.json"
     sites = {s["id"]: s for s in json.loads(sites_path.read_text())} if sites_path.exists() else {}
