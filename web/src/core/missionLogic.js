@@ -1,0 +1,189 @@
+// LunaWise mission logic (M1). Pure functions: no DOM, no network, no randomness.
+//
+// Input is one data_out/results/<site>.json object:
+//   { site, t: [ISO hourly UTC], sun_lit: [0|1], earth_vis: [0|1], summary, ... }
+// Every number these functions return is counted from sun_lit / earth_vis. Nothing is estimated.
+//
+// Conventions
+//   - Hour k covers [t[k], t[k] + 1 h). A mission window is [startIdx, endIdx), end exclusive.
+//   - Landing = startDate + delayDays. Mission = durationDays after landing.
+//   - Runs (nights, comm gaps) are counted from the landing hour: darkness before landing is not
+//     experienced by the lander, so a night already in progress at landing counts from landing.
+//   - A requirement "longest night <= X h" fails at the first hour where the dark run reaches X+1 h.
+//
+// Main entry points (used by M3's dashboard and M4's replay):
+//   missionWindow(results, {startDate, delayDays, durationDays})
+//   windowMetrics(results, win)
+//   firstFailure(results, win, req)
+//   evaluate(results, opts, req)            -> { window, metrics, failure, pass }
+//   delayScan(results, opts, req, maxDelay) -> evaluate() for delay = 0..maxDelay days
+//   rankSites(list, opts, req, sortBy)      -> sites that pass, sorted by one named metric
+//   failureMessage(failure, siteName)       -> plain-language sentence built from the numbers
+
+const HOUR_MS = 3600 * 1000;
+
+/** Index of the hour containing `iso` (may be < 0 or >= t.length if outside the data). */
+export function hourIndexOf(t, iso) {
+  return Math.floor((Date.parse(iso) - Date.parse(t[0])) / HOUR_MS);
+}
+
+/** Format an ISO timestamp as "2027-03-12 04:00 UTC". */
+export function fmtTime(iso) {
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
+
+/**
+ * Mission window. startDate: ISO string (default: first hour of the data).
+ * Returns { startIdx, endIdx, hours, requestedHours, truncated, startT, endT }.
+ * truncated = true when the window runs past the end of the data (or starts before it).
+ */
+export function missionWindow(results, { startDate, delayDays = 0, durationDays = 14 } = {}) {
+  const n = results.t.length;
+  const base = startDate ? hourIndexOf(results.t, startDate) : 0;
+  const requestedStart = base + Math.round(24 * delayDays);
+  const requestedHours = Math.round(24 * durationDays);
+  const startIdx = Math.min(Math.max(requestedStart, 0), n);
+  const endIdx = Math.min(Math.max(requestedStart + requestedHours, 0), n);
+  const hours = Math.max(endIdx - startIdx, 0);
+  return {
+    startIdx, endIdx, hours, requestedHours,
+    truncated: hours < requestedHours,
+    startT: hours ? results.t[startIdx] : null,
+    endT: hours ? results.t[endIdx - 1] : null,
+  };
+}
+
+/** Longest run of `value` in arr[from, to). Returns { length, start } (start = absolute index). */
+export function longestRun(arr, from, to, value = 0) {
+  let best = 0, bestStart = null, cur = 0, curStart = null;
+  for (let k = from; k < to; k++) {
+    if (arr[k] === value) {
+      if (cur === 0) curStart = k;
+      cur++;
+      if (cur > best) { best = cur; bestStart = curStart; }
+    } else cur = 0;
+  }
+  return { length: best, start: bestStart };
+}
+
+const pct = (count, hours) => (hours ? Math.round((1000 * count) / hours) / 10 : null);
+
+/** Metrics over the window, counted from the hourly flags. */
+export function windowMetrics(results, win) {
+  const { sun_lit: s, earth_vis: e } = results;
+  let sun = 0, earth = 0, both = 0;
+  for (let k = win.startIdx; k < win.endIdx; k++) {
+    sun += s[k]; earth += e[k]; both += s[k] & e[k];
+  }
+  const night = longestRun(s, win.startIdx, win.endIdx, 0);
+  const gap = longestRun(e, win.startIdx, win.endIdx, 0);
+  return {
+    hours: win.hours,
+    sunHours: sun, earthHours: earth, bothHours: both,
+    sunPct: pct(sun, win.hours), earthPct: pct(earth, win.hours), bothPct: pct(both, win.hours),
+    longestNightH: night.length,
+    longestNightStart: night.start === null ? null : results.t[night.start],
+    longestCommGapH: gap.length,
+    longestCommGapStart: gap.start === null ? null : results.t[gap.start],
+  };
+}
+
+/**
+ * First requirement broken inside the window, or null if all pass.
+ * req: { maxNightH, maxCommGapH, minSunPct, minEarthPct } (any may be omitted / null).
+ * Hour-by-hour limits (night, comm) are found at the hour they break; percentage limits can only
+ * be judged at the end of the window. Ties at the same hour: night before comm.
+ */
+export function firstFailure(results, win, req = {}) {
+  const { sun_lit: s, earth_vis: e, t } = results;
+  let dark = 0, darkStart = null, noComm = 0, noCommStart = null;
+  for (let k = win.startIdx; k < win.endIdx; k++) {
+    if (s[k] === 0) { if (dark === 0) darkStart = k; dark++; } else dark = 0;
+    if (e[k] === 0) { if (noComm === 0) noCommStart = k; noComm++; } else noComm = 0;
+    const base = { hourIndex: k, missionHour: k - win.startIdx, timestamp: t[k] };
+    if (req.maxNightH != null && dark > req.maxNightH) {
+      return { kind: "night", ...base, limit: req.maxNightH, runH: dark,
+               runStartIndex: darkStart, runStart: t[darkStart],
+               atLanding: darkStart === win.startIdx && win.startIdx > 0 && s[win.startIdx - 1] === 0 };
+    }
+    if (req.maxCommGapH != null && noComm > req.maxCommGapH) {
+      return { kind: "comm", ...base, limit: req.maxCommGapH, runH: noComm,
+               runStartIndex: noCommStart, runStart: t[noCommStart],
+               atLanding: noCommStart === win.startIdx && win.startIdx > 0 && e[win.startIdx - 1] === 0 };
+    }
+  }
+  const m = windowMetrics(results, win);
+  const end = { hourIndex: win.endIdx - 1, missionHour: win.hours - 1,
+                timestamp: win.hours ? t[win.endIdx - 1] : null };
+  if (req.minSunPct != null && m.sunPct !== null && m.sunPct < req.minSunPct) {
+    return { kind: "sun_pct", ...end, limit: req.minSunPct, value: m.sunPct };
+  }
+  if (req.minEarthPct != null && m.earthPct !== null && m.earthPct < req.minEarthPct) {
+    return { kind: "earth_pct", ...end, limit: req.minEarthPct, value: m.earthPct };
+  }
+  return null;
+}
+
+/** Window + metrics + first failure in one call. pass = no failure and a full-length window. */
+export function evaluate(results, opts, req = {}) {
+  const window = missionWindow(results, opts);
+  const metrics = windowMetrics(results, window);
+  const failure = window.hours ? firstFailure(results, window, req) : null;
+  return { site: results.site, window, metrics, failure,
+           pass: failure === null && !window.truncated && window.hours > 0 };
+}
+
+/** evaluate() for delays 0, 1, ..., maxDelayDays (whole days). */
+export function delayScan(results, opts, req = {}, maxDelayDays = 30) {
+  const out = [];
+  for (let d = 0; d <= maxDelayDays; d++) {
+    out.push({ delayDays: d, ...evaluate(results, { ...opts, delayDays: d }, req) });
+  }
+  return out;
+}
+
+/** First delay (days) at which the mission stops passing, given it passes at delay 0. */
+export function firstFailingDelay(scan) {
+  const hit = scan.find((r) => !r.pass);
+  return hit ? hit.delayDays : null;
+}
+
+/**
+ * Sites that pass, sorted by ONE named metric from windowMetrics (no composite score).
+ * list: [{ name?, results }]. sortBy: "bothPct" | "sunPct" | "earthPct" | "longestNightH" | ...
+ * Hours metrics (nights, gaps) sort ascending (shorter is better); percentages descending.
+ */
+export function rankSites(list, opts, req = {}, sortBy = "bothPct") {
+  const evals = list.map(({ name, results }) => ({ name: name ?? results.site,
+                                                   ...evaluate(results, opts, req) }));
+  const asc = sortBy.endsWith("H");
+  const passing = evals.filter((r) => r.pass)
+    .sort((a, b) => (asc ? 1 : -1) * (a.metrics[sortBy] - b.metrics[sortBy]));
+  const failing = evals.filter((r) => !r.pass);
+  return { passing, failing, sortBy };
+}
+
+/** One plain sentence describing a failure, built only from its fields. */
+export function failureMessage(f, siteName = "") {
+  const at = siteName ? `${siteName}: ` : "";
+  if (!f) return `${at}all requirements met in this window.`;
+  const hr = `mission hour ${f.missionHour + 1}`;
+  switch (f.kind) {
+    case "night":
+      return `${at}Sun below the terrain horizon for more than ${f.limit} h. ` +
+             (f.atLanding ? `It was already dark at landing (${fmtTime(f.runStart)})`
+                          : `Darkness began ${fmtTime(f.runStart)}`) +
+             `; the limit was exceeded at ${fmtTime(f.timestamp)} (${hr}).`;
+    case "comm":
+      return `${at}Earth below the terrain horizon for more than ${f.limit} h. ` +
+             (f.atLanding ? `Earth was already out of view at landing (${fmtTime(f.runStart)})`
+                          : `Contact was lost ${fmtTime(f.runStart)}`) +
+             `; the limit was exceeded at ${fmtTime(f.timestamp)} (${hr}).`;
+    case "sun_pct":
+      return `${at}Sunlit for ${f.value}% of the mission, below the required ${f.limit}%.`;
+    case "earth_pct":
+      return `${at}Earth visible for ${f.value}% of the mission, below the required ${f.limit}%.`;
+    default:
+      return `${at}requirement "${f.kind}" not met at ${fmtTime(f.timestamp)}.`;
+  }
+}
