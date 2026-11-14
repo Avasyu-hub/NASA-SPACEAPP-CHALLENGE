@@ -1,65 +1,29 @@
-import { checkVisibilityRay } from './raycast.js';
+// Member 2: Web Worker that runs the full ray-cast agreement check off the main thread
+// (goal.md H10-H12).
+//   const w = new Worker(new URL("./raycastWorker.js", import.meta.url), { type: "module" });
+//   w.postMessage({ basePath: "./data", siteId: "site04", mast: 2, samples: [{az, el}, ...] });
+//   w.onmessage = (e) => e.data  // { siteId, mast, n, checked, outOfGrid, agree, pct, mismatches }
+// `samples` is typically every hour of the Sun and Earth tracks from data_out/angles/<site>.json.
+import { loadTerrain, agreement } from "./raycast.js";
 
-self.onmessage = ({ data }) => {
-  const {
-    sunAz,
-    sunEl,
-    earthAz,
-    earthEl,
-    sunLitEngine,
-    earthVisEngine,
-    nearGrid,
-    farGrid,
-    obsHeightM,
-  } = data;
-  const totalHours = sunAz.length;
-  if (
-    totalHours === 0 ||
-    sunEl.length !== totalHours ||
-    earthAz.length !== totalHours ||
-    earthEl.length !== totalHours ||
-    sunLitEngine.length !== totalHours ||
-    earthVisEngine.length !== totalHours
-  ) {
-    throw new TypeError('Raycast inputs must be non-empty arrays of equal length');
+const cache = new Map();
+
+self.onmessage = async ({ data }) => {
+  const { basePath = "./data", siteId, mast = 2, samples } = data;
+  try {
+    if (!cache.has(siteId)) {
+      const [terrain, mask] = await Promise.all([
+        loadTerrain(basePath, siteId),
+        fetch(`${basePath}/mask/${siteId}.json`).then((r) => r.json()),
+      ]);
+      cache.set(siteId, { terrain, mask });
+    }
+    const { terrain, mask } = cache.get(siteId);
+    const key = String(mast);
+    const profile = mask.elev_deg_by_mast?.[key] ?? mask.elev_deg;
+    const dist = mask.horizon_dist_km_by_mast?.[key] ?? null;
+    self.postMessage({ siteId, mast, ...agreement(terrain, +mast, profile, samples, dist) });
+  } catch (err) {
+    self.postMessage({ siteId, mast, error: String(err) });
   }
-
-  let sunAgreed = 0;
-  let earthAgreed = 0;
-  const sunRayFlags = new Uint8Array(totalHours);
-  const earthRayFlags = new Uint8Array(totalHours);
-
-  for (let hour = 0; hour < totalHours; hour += 1) {
-    const sunVisible = checkVisibilityRay(
-      sunAz[hour],
-      sunEl[hour],
-      obsHeightM,
-      nearGrid,
-      farGrid,
-    );
-    const earthVisible = checkVisibilityRay(
-      earthAz[hour],
-      earthEl[hour],
-      obsHeightM,
-      nearGrid,
-      farGrid,
-    );
-
-    sunRayFlags[hour] = Number(sunVisible);
-    earthRayFlags[hour] = Number(earthVisible);
-    if (sunRayFlags[hour] === sunLitEngine[hour]) sunAgreed += 1;
-    if (earthRayFlags[hour] === earthVisEngine[hour]) earthAgreed += 1;
-  }
-
-  self.postMessage(
-    {
-      totalHours,
-      sunAgreementPct: ((sunAgreed / totalHours) * 100).toFixed(1),
-      earthAgreementPct: ((earthAgreed / totalHours) * 100).toFixed(1),
-      overallAgreementPct: (((sunAgreed + earthAgreed) / (totalHours * 2)) * 100).toFixed(1),
-      sunRayFlags,
-      earthRayFlags,
-    },
-    [sunRayFlags.buffer, earthRayFlags.buffer],
-  );
 };
