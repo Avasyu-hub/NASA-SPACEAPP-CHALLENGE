@@ -20,6 +20,9 @@
 //   rankSites(list, opts, req, sortBy)      -> sites that pass, sorted by one named metric
 //   failureMessage(failure, siteName)       -> plain-language sentence built from the numbers
 //   batteryTrace(results, win, battery)     -> hourly battery charge (Wh) from landing onward
+//   countdowns(results, k), nextChange()    -> hours until sunset/sunrise and Earthset/Earthrise
+//   countdownText(c, 'sun'|'earth')         -> "Sunset in 14 h (2027-01-10 14:00 UTC)"
+//   sunElevationStats(angles, results, win, k) -> Sun elevation now / max / mean lit / margin
 //
 // Battery (goal.md 6.5), optional: pass req.battery = { capacityWh, solarW, loadW, startWh }.
 //   SoC[h] = min(capacity, max(0, SoC[h-1] + solarW * sun_lit[h] - loadW)), 1 h steps,
@@ -230,4 +233,72 @@ export function failureMessage(f, siteName = "") {
     default:
       return `${at}requirement "${f.kind}" not met at ${fmtTime(f.timestamp)}.`;
   }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Countdowns (WORKPLAN M1.1): "Sunset in N h / Earthset in N h", the challenge's "time remaining
+// before sunset or Earthset". Counted from the hourly flags, so the resolution is 1 hour.
+
+/**
+ * Hours until flags[k] changes value, looking forward from hour k.
+ * Returns { now: 0|1, hours, at, atIndex }: `at` is the timestamp of the first hour with the
+ * other value. If it never changes before the end of the data: { now, hours: null, at: null,
+ * atIndex: null }. k outside the data -> null.
+ * UI: now === 1 -> "Sunset in N h" (Earthset); now === 0 -> "Sunrise in N h" (Earthrise).
+ */
+export function nextChange(flags, t, k) {
+  if (!(k >= 0 && k < flags.length)) return null;
+  const now = flags[k];
+  for (let j = k + 1; j < flags.length; j++) {
+    if (flags[j] !== now) return { now, hours: j - k, at: t[j], atIndex: j };
+  }
+  return { now, hours: null, at: null, atIndex: null };
+}
+
+/** Both bodies at hour k: { sun: nextChange(sun_lit), earth: nextChange(earth_vis) }. */
+export function countdowns(results, k) {
+  return { sun: nextChange(results.sun_lit, results.t, k),
+           earth: nextChange(results.earth_vis, results.t, k) };
+}
+
+/** Plain text for one countdown, e.g. "Sunset in 14 h (2027-01-10 14:00 UTC)". */
+export function countdownText(c, body = "sun") {
+  if (!c) return "—";
+  const [up, down] = body === "sun" ? ["Sunrise", "Sunset"] : ["Earthrise", "Earthset"];
+  const what = c.now ? down : up;
+  if (c.hours === null) return `No ${what.toLowerCase()} before the end of the computed data`;
+  return `${what} in ${c.hours} h (${fmtTime(c.at)})`;
+}
+
+// ----------------------------------------------------------------------------------------------
+// Solar elevation (WORKPLAN M1.3): elevation drives solar power; the challenge asks to show it
+// prominently. Input: data_out/angles/<site>.json (sun_el) + results (sun_lit) + a window.
+
+/**
+ * { nowDeg, maxDeg, maxAt, minDeg, meanLitDeg, nowMarginDeg } over the window.
+ * nowDeg: Sun elevation at hour k (null if k is outside the data).
+ * meanLitDeg: mean elevation over the window's hours with sun_lit == 1 (null if none).
+ * nowMarginDeg: results.sun_margin_deg[k] (degrees above the terrain skyline) when present.
+ * Values are rounded to 0.01 deg, like the source data.
+ */
+export function sunElevationStats(angles, results, win, k = win.startIdx) {
+  const el = angles.sun_el;
+  const r2 = (v) => (v === null ? null : Math.round(v * 100) / 100);
+  let max = -Infinity, maxK = null, min = Infinity, litSum = 0, litN = 0;
+  for (let j = win.startIdx; j < win.endIdx; j++) {
+    if (el[j] > max) { max = el[j]; maxK = j; }
+    if (el[j] < min) min = el[j];
+    if (results.sun_lit[j] === 1) { litSum += el[j]; litN++; }
+  }
+  const has = win.endIdx > win.startIdx;
+  const inData = k >= 0 && k < el.length;
+  const margin = results.sun_margin_deg;
+  return {
+    nowDeg: inData ? r2(el[k]) : null,
+    maxDeg: has ? r2(max) : null,
+    maxAt: has ? results.t[maxK] : null,
+    minDeg: has ? r2(min) : null,
+    meanLitDeg: litN ? r2(litSum / litN) : null,
+    nowMarginDeg: margin && inData ? r2(margin[k]) : null,
+  };
 }

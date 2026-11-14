@@ -9,12 +9,19 @@ From `Member2/`:
 
 ```powershell
 py -m pip install -r ..\requirements.txt
-py -m pytest pipeline/tests -q          # 14 tests, synthetic DEMs (no downloads needed)
+py -m pytest pipeline/tests -q          # 18 tests, synthetic DEMs (no downloads needed)
+py pipeline\fetch_data.py --list        # raw NASA data: what is needed, sizes, what is present
+py pipeline\fetch_data.py               # download it into ..\data_raw\ (about 4 GB; --only near roi illum skips the 3.7 GB DEM)
 py -m pipeline.export --all             # all 5 sites, about 1 minute; needs data_raw/ (below)
 npm test                                # ray-cast checks, incl. agreement on the real data_out/
 ```
 
 `--data-raw <folder>` points at a `data_raw/` somewhere else. `--site site04` runs one site.
+`--nearby 1000` computes the nearby points (see below).
+
+Goddard comparison (from the repo root): `py Member2/pipeline/goddard_compare.py` for the sites and
+`py Member2/pipeline/goddard_compare.py --sites nearby.json --name goddard_nearby` for the nearby
+points. Outputs go to `docs/validation/`; maps are read over HTTP (a few pixels), or `--local data_raw/illum`.
 
 ## Outputs (`data_out/`)
 
