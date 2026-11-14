@@ -19,6 +19,12 @@
 //   delayScan(results, opts, req, maxDelay) -> evaluate() for delay = 0..maxDelay days
 //   rankSites(list, opts, req, sortBy)      -> sites that pass, sorted by one named metric
 //   failureMessage(failure, siteName)       -> plain-language sentence built from the numbers
+//   batteryTrace(results, win, battery)     -> hourly battery charge (Wh) from landing onward
+//
+// Battery (goal.md 6.5), optional: pass req.battery = { capacityWh, solarW, loadW, startWh }.
+//   SoC[h] = min(capacity, max(0, SoC[h-1] + solarW * sun_lit[h] - loadW)), 1 h steps,
+//   starting at landing with startWh (default: full). "battery" failure = first hour SoC hits 0.
+//   UI label: "Scenario engineering model, not official NASA spacecraft specification."
 
 const HOUR_MS = 3600 * 1000;
 
@@ -88,15 +94,42 @@ export function windowMetrics(results, win) {
   };
 }
 
+export const DEFAULT_BATTERY = { capacityWh: 1500, solarW: 250, loadW: 80 };   // goal.md 6.5
+
+function batteryParams(b) {
+  const p = { ...DEFAULT_BATTERY, ...b };
+  for (const k of ["capacityWh", "solarW", "loadW"]) {
+    if (!(Number.isFinite(p[k]) && p[k] >= 0)) throw new Error(`battery.${k} must be a number >= 0`);
+  }
+  p.startWh = Math.min(p.startWh ?? p.capacityWh, p.capacityWh);
+  return p;
+}
+
+/** Hourly state of charge (Wh) over the window, starting at landing. Index 0 = landing hour. */
+export function batteryTrace(results, win, battery = {}) {
+  const b = batteryParams(battery);
+  const soc = new Float64Array(win.hours);
+  let x = b.startWh;
+  for (let k = win.startIdx, i = 0; k < win.endIdx; k++, i++) {
+    x = Math.min(b.capacityWh, Math.max(0, x + b.solarW * results.sun_lit[k] - b.loadW));
+    soc[i] = x;
+  }
+  return { socWh: soc, params: b,
+           minWh: soc.length ? Math.min(...soc) : null,
+           firstEmptyMissionHour: soc.findIndex((v) => v <= 0) };
+}
+
 /**
  * First requirement broken inside the window, or null if all pass.
- * req: { maxNightH, maxCommGapH, minSunPct, minEarthPct } (any may be omitted / null).
+ * req: { maxNightH, maxCommGapH, minSunPct, minEarthPct, battery } (any may be omitted / null).
  * Hour-by-hour limits (night, comm) are found at the hour they break; percentage limits can only
  * be judged at the end of the window. Ties at the same hour: night before comm.
  */
 export function firstFailure(results, win, req = {}) {
   const { sun_lit: s, earth_vis: e, t } = results;
   let dark = 0, darkStart = null, noComm = 0, noCommStart = null;
+  const b = req.battery ? batteryParams(req.battery) : null;
+  let soc = b ? b.startWh : null;
   for (let k = win.startIdx; k < win.endIdx; k++) {
     if (s[k] === 0) { if (dark === 0) darkStart = k; dark++; } else dark = 0;
     if (e[k] === 0) { if (noComm === 0) noCommStart = k; noComm++; } else noComm = 0;
@@ -110,6 +143,13 @@ export function firstFailure(results, win, req = {}) {
       return { kind: "comm", ...base, limit: req.maxCommGapH, runH: noComm,
                runStartIndex: noCommStart, runStart: t[noCommStart],
                atLanding: noCommStart === win.startIdx && win.startIdx > 0 && e[win.startIdx - 1] === 0 };
+    }
+    if (b) {
+      soc = Math.min(b.capacityWh, Math.max(0, soc + b.solarW * s[k] - b.loadW));
+      if (soc <= 0) {
+        return { kind: "battery", ...base, darkH: dark, battery: b,
+                 runStart: darkStart === null ? null : t[darkStart] };
+      }
     }
   }
   const m = windowMetrics(results, win);
@@ -179,6 +219,10 @@ export function failureMessage(f, siteName = "") {
              (f.atLanding ? `Earth was already out of view at landing (${fmtTime(f.runStart)})`
                           : `Contact was lost ${fmtTime(f.runStart)}`) +
              `; the limit was exceeded at ${fmtTime(f.timestamp)} (${hr}).`;
+    case "battery":
+      return `${at}Battery empty at ${fmtTime(f.timestamp)} (${hr}), after ${f.darkH} h without ` +
+             `sunlight (scenario: ${f.battery.capacityWh} Wh battery, ${f.battery.solarW} W solar, ` +
+             `${f.battery.loadW} W load; not an official NASA spacecraft specification).`;
     case "sun_pct":
       return `${at}Sunlit for ${f.value}% of the mission, below the required ${f.limit}%.`;
     case "earth_pct":

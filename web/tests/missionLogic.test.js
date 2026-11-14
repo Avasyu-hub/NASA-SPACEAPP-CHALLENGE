@@ -99,6 +99,35 @@ test("failure message uses only computed numbers", () => {
   assert.match(ml.failureMessage(null), /all requirements met/);
 });
 
+test("battery: starts full at landing, drains in the dark, fails at the first empty hour", () => {
+  // 10 lit hours, then dark. 100 Wh battery, 20 W load: empty after 5 dark hours.
+  const r = fake([...rep(1, 10), ...rep(0, 20)]);
+  const w = ml.missionWindow(r, { durationDays: 30 / 24 });
+  const bat = { capacityWh: 100, solarW: 50, loadW: 20 };
+  const tr = ml.batteryTrace(r, w, bat);
+  assert.equal(tr.socWh[0], 100);                     // full, charging capped at capacity
+  assert.equal(tr.socWh[10], 80); assert.equal(tr.socWh[14], 0);
+  assert.equal(tr.firstEmptyMissionHour, 14);
+  const f = ml.firstFailure(r, w, { maxNightH: 100, battery: bat });
+  assert.equal(f.kind, "battery"); assert.equal(f.missionHour, 14); assert.equal(f.darkH, 5);
+  assert.match(ml.failureMessage(f), /Battery empty .*after 5 h without sunlight .*100 Wh/);
+});
+
+test("battery: starts at landing, not at the start of the data", () => {
+  const r = fake([...rep(0, 30), ...rep(1, 30)]);    // dark for the first 30 h of the data
+  const w = ml.missionWindow(r, { delayDays: 30 / 24, durationDays: 1 });
+  const f = ml.firstFailure(r, w, { battery: { capacityWh: 100, solarW: 50, loadW: 20 } });
+  assert.equal(f, null);                              // landed in sunlight: never empty
+});
+
+test("battery: zero values are respected, bad values rejected", () => {
+  const r = fake(rep(0, 10));
+  const w = ml.missionWindow(r, { durationDays: 10 / 24 });
+  assert.equal(ml.firstFailure(r, w, { battery: { capacityWh: 100, loadW: 0 } }), null);
+  assert.equal(ml.firstFailure(r, w, { battery: { capacityWh: 100, startWh: 0 } }).missionHour, 0);
+  assert.throws(() => ml.batteryTrace(r, w, { loadW: -5 }), /loadW/);
+});
+
 // --- Real data: JS full-year metrics must equal combine.py's summary exactly. ---
 const SITES = ["site01", "site04", "site07", "site11", "site23"];
 for (const id of SITES) {
