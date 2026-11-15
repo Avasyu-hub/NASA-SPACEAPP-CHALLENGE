@@ -1,466 +1,269 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LunaWise — 3D Lander Digital Twin Simulation</title>
-  <link rel="stylesheet" href="./src/style.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>LunaWise</title>
+  <meta name="description" content="Compare lunar south pole landing sites by when the Sun and Earth clear the real terrain, and see what a launch slip does to each one." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./src/dashboard/dashboard.css" />
 </head>
 <body>
-  <!-- Three.js Canvas Container -->
-  <div id="simulation-container"></div>
+  <div id="app" class="app" data-view="moon">
 
-  <!-- 2D Lunar South Pole Map Container -->
-  <div id="map-2d-container"></div>
-
-  <!-- Blender-Style Top Header Bar -->
-  <header class="blender-header">
-    <div class="header-left">
-      <div class="app-brand">
-        <svg class="blender-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="9"></circle>
-          <path d="M12 3a9 9 0 0 0 0 18"></path>
-        </svg>
-        <span class="brand-title">LUNAWISE</span>
-      </div>
-
-      <div class="header-separator"></div>
-
-      <!-- Primary Viewport Mode Dropdown (Blender Object Mode Style) -->
-      <div class="viewport-mode-wrap">
-        <svg class="mode-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-          <line x1="12" y1="22.08" x2="12" y2="12"></line>
-        </svg>
-        <select id="viewport-mode-select" class="blender-select" data-tooltip="Switch Viewport Mode [Blender Object Mode]">
-          <option value="3d" selected>3D Simulation Viewport</option>
-          <option value="2d">2D South Pole Grid Map</option>
-        </select>
-      </div>
-
-      <div class="header-separator"></div>
-
-      <!-- Site Dropdown Selector -->
-      <div class="site-selector-wrap">
-        <!-- Options are filled from data_out/sites.json at startup (main.js). -->
-        <select id="site-selector" class="blender-select">
-          <option value="site04" selected>site04</option>
-        </select>
-      </div>
-
-      <!-- Mode Selector -->
-      <div class="blender-tab-group">
-        <button id="btn-mode-lander" class="blender-tab active" data-tooltip="Mode A: First-Person Mast (2m)">
-          <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M3 12h3M18 12h3M12 3v3M12 18v3"></path>
-          </svg>
-          <span>Lander Mast</span>
-        </button>
-        <button id="btn-mode-overview" class="blender-tab" data-tooltip="Mode B: Orbital Overview">
-          <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-30 12 12)"></ellipse>
-          </svg>
-          <span>Orbital</span>
-        </button>
-      </div>
-
-      <div class="header-separator"></div>
-
-      <!-- Expedition Planner Button -->
-      <button id="btn-expedition-planner" class="blender-tab tooltip-trigger" data-tooltip="Custom Mission & Expedition Planner [Select custom date range across 2027+]">
-        <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-          <line x1="16" y1="2" x2="16" y2="6"></line>
-          <line x1="8" y1="2" x2="8" y2="6"></line>
-          <line x1="3" y1="10" x2="21" y2="10"></line>
-        </svg>
-        <span>Expedition Planner</span>
-      </button>
+    <!-- 3D stage: whole-Moon globe, or M4's lander digital twin -->
+    <div class="stage" aria-label="3D view">
+      <div id="stage-globe" class="stage-layer"></div>
+      <div id="stage-sim" class="stage-layer" hidden></div>
+      <div class="stage-vignette" aria-hidden="true"></div>
     </div>
 
-    <!-- Center/Right Status & Battery Telemetry -->
-    <div class="header-right">
-      <!-- Continuous Tracking Lock Badge -->
-      <div id="tracking-indicator-badge" class="telemetry-box" style="display: none; border-color: var(--blender-accent); color: var(--blender-accent);" data-tooltip="Camera actively tracking celestial body [Dbl-Click canvas or Esc to unlock]">
-        <span class="status-indicator-dot" style="background: var(--blender-accent);"></span>
-        <span id="tracking-indicator-text" class="box-value" style="color: var(--blender-accent);">TRACKING: SUN</span>
+    <!-- Top bar -->
+    <header class="topbar">
+      <a class="wordmark" href="#" id="home-link" aria-label="LunaWise, back to the whole Moon">
+        <span class="wm-mark" aria-hidden="true"></span>LUNAWISE
+      </a>
+      <p class="tagline">the launch slipped. which south pole sites still work?</p>
+
+      <nav class="views" aria-label="View">
+        <button type="button" data-view="moon" class="is-on">Moon</button>
+        <button type="button" data-view="overview">Orbit site</button>
+        <button type="button" data-view="lander">Lander mast</button>
+      </nav>
+
+      <div class="top-actions">
+        <button type="button" class="pill" id="btn-share">Copy scenario link</button>
+        <a class="pill ghost" href="./twin.html" id="link-twin">Full digital twin ↗</a>
+      </div>
+    </header>
+
+    <!-- Left panel -->
+    <aside class="panel" id="panel" aria-label="Mission planner">
+      <div class="site-head">
+        <label class="micro" for="site-select">Landing site</label>
+        <select id="site-select" class="site-select" aria-label="Landing site"></select>
+        <h1 id="site-title" class="site-title">—</h1>
+        <p id="site-meta" class="site-meta mono">—</p>
       </div>
 
-      <!-- Battery SoC Widget -->
-      <div class="telemetry-box" data-tooltip="Lander battery (scenario assumption, not NASA data: 1500 Wh, 250 W solar, 80 W load). Shown inside the mission window only.">
-        <svg class="box-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect>
-          <line x1="20" y1="11" x2="20" y2="13"></line>
-        </svg>
-        <span class="box-label">BAT:</span>
-        <div class="battery-bar-wrap">
-          <div id="battery-bar-fill" class="battery-bar-fill" style="width: 0%;"></div>
-        </div>
-        <span id="battery-pct-text" class="box-value">—</span>
+      <div class="tabs" role="tablist">
+        <button role="tab" type="button" data-tab="mission" aria-selected="true">Mission</button>
+        <button role="tab" type="button" data-tab="compare" aria-selected="false">Compare sites</button>
+        <button role="tab" type="button" data-tab="about" aria-selected="false">About the data</button>
       </div>
 
-      <!-- Sun Status (engine flag; ray-cast result in brackets) -->
-      <div id="badge-sun" class="telemetry-box" data-tooltip="Sun above the terrain horizon (engine). Ray-cast result in brackets.">
-        <span class="status-indicator-dot"></span>
-        <span id="sun-status-text" class="box-value">SUN: —</span>
-      </div>
-
-      <!-- Earth Comms Status (engine flag; ray-cast result in brackets) -->
-      <div id="badge-earth" class="telemetry-box" data-tooltip="Earth above the terrain horizon (engine). Ray-cast result in brackets.">
-        <span class="status-indicator-dot"></span>
-        <span id="earth-status-text" class="box-value">EARTH: —</span>
-      </div>
-
-      <!-- Real-time Countdowns & Ridge Margin (M4.2) -->
-      <div id="badge-countdown" class="telemetry-box" data-tooltip="Event countdowns and solar ridge margin (computed from ephemeris & horizon mask)">
-        <span class="box-label">TIMING:</span>
-        <span id="countdown-text" class="box-value">—</span>
-      </div>
-
-      <!-- Raycast Agreement: filled only by the Web Worker's computed result -->
-      <div class="telemetry-box" data-tooltip="Ray cast vs engine flags over the year, on hours the 30.7 km heightmap can check. Shows our code and conventions are consistent; terrain accuracy is checked against NASA Goddard maps and QuickMap.">
-        <span class="box-label">RAYCAST:</span>
-        <span id="raycast-agreement-text" class="box-value">—</span>
-      </div>
-    </div>
-  </header>
-
-  <!-- Floating Notification Banners (M4.3) -->
-  <div id="notification-badges" class="notification-badges-container">
-    <div id="scale-warning-badge" class="floating-notice" style="display: none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="notice-icon"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-      <span id="scale-warning-text">Sun/Earth enlarged for visibility (true angular sizes 0.53° / 1.9°)</span>
-    </div>
-    <div id="walk-warning-badge" class="floating-notice" style="display: none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="notice-icon"><path d="M13 4v16M7 8l6-4 6 4M7 16l6 4 6-4"></path></svg>
-      <span id="walk-warning-text">Mask line is for the lander position; you are — m away</span>
-    </div>
-  </div>
-
-  <!-- Critical Failure Alert Banner -->
-  <div id="failure-banner" class="failure-banner" style="display: none;">
-    <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
-      <line x1="12" y1="9" x2="12" y2="13"></line>
-      <line x1="12" y1="17" x2="12.01" y2="17"></line>
-    </svg>
-    <div class="failure-msg-wrap">
-      <span class="failure-title">MISSION FAILURE DETECTED</span>
-      <span id="failure-banner-text"></span>
-    </div>
-  </div>
-
-  <!-- Blender-Style Vertical Tool Dock (Right Side) -->
-  <aside class="blender-tools-dock">
-    <!-- Horizon Mask Toggle -->
-    <button id="btn-mask-toggle" class="tool-btn active tooltip-trigger" data-tooltip="Horizon Mask Profile Line">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M2 18c4-6 8-6 12-1s6 3 8-4"></path>
-      </svg>
-    </button>
-
-    <div class="tool-separator"></div>
-
-    <!-- Terrain Layers -->
-    <button id="btn-layer-none" class="tool-btn active tooltip-trigger" data-tooltip="Layer: Natural Lunar Regolith">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"></path>
-      </svg>
-    </button>
-
-    <button id="btn-layer-slope" class="tool-btn tooltip-trigger" data-tooltip="Layer: Slope Hazard Analysis">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M3 20h18L14 4 9 13 6 10l-3 10z"></path>
-      </svg>
-    </button>
-
-    <!-- Hidden: this layer is procedural noise, not Diviner data. Re-enable only with the real
-         Diviner rock-abundance product loaded from data_out/. -->
-    <button id="btn-layer-rock" class="tool-btn tooltip-trigger" style="display: none;" data-tooltip="Layer: rock abundance (not available)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="6" cy="18" r="3"></circle>
-        <circle cx="16" cy="16" r="4"></circle>
-        <circle cx="12" cy="7" r="3"></circle>
-      </svg>
-    </button>
-
-
-    <div class="tool-separator"></div>
-
-    <!-- Celestial Scale -->
-    <div class="scale-buttons-vertical">
-      <button id="btn-scale-1x" class="scale-btn active tooltip-trigger" data-tooltip="Scale: 1x True Physical Disk">1x</button>
-      <button id="btn-scale-3x" class="scale-btn tooltip-trigger" data-tooltip="Scale: 3x Magnified Disk">3x</button>
-      <button id="btn-scale-5x" class="scale-btn tooltip-trigger" data-tooltip="Scale: 5x Magnified Disk">5x</button>
-    </div>
-
-    <div class="tool-separator"></div>
-
-    <!-- Camera Presets / Tracking Lock -->
-    <button id="btn-look-sun" class="tool-btn tooltip-trigger" data-tooltip="Lock/Track Sun Position [Click to toggle]">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="5"></circle>
-        <line x1="12" y1="1" x2="12" y2="3"></line>
-        <line x1="12" y1="21" x2="12" y2="23"></line>
-        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-        <line x1="1" y1="12" x2="3" y2="12"></line>
-        <line x1="21" y1="12" x2="23" y2="12"></line>
-        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-      </svg>
-    </button>
-
-    <button id="btn-look-earth" class="tool-btn tooltip-trigger" data-tooltip="Lock/Track Earth Position [Click to toggle]">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"></circle>
-        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-        <path d="M2 12h20"></path>
-      </svg>
-    </button>
-
-    <button id="btn-look-north" class="tool-btn tooltip-trigger" data-tooltip="View: Align Lunar North (0°)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
-      </svg>
-    </button>
-
-    <div class="tool-separator"></div>
-
-    <!-- Critical Failure Jump -->
-    <button id="btn-jump-failure" class="tool-btn danger-tool tooltip-trigger" data-tooltip="Jump to First Delay Failure">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-        <line x1="12" y1="9" x2="12" y2="13"></line>
-        <line x1="12" y1="17" x2="12.01" y2="17"></line>
-      </svg>
-    </button>
-  </aside>
-
-  <!-- Blender-Style Bottom Timeline Strip -->
-  <div class="blender-timeline">
-    <!-- Header Row of Timeline -->
-    <div class="timeline-header-row">
-      <!-- Transport Buttons -->
-      <div class="transport-group">
-        <button id="btn-step-start" class="transport-btn tooltip-trigger" data-tooltip="First Frame (Hour 0)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="19 20 9 12 19 4 19 20"></polygon>
-            <line x1="5" y1="19" x2="5" y2="5"></line>
-          </svg>
-        </button>
-
-        <button id="btn-step-back" class="transport-btn tooltip-trigger" data-tooltip="Previous Frame (-1h)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="19 20 9 12 19 4 19 20"></polygon>
-          </svg>
-        </button>
-
-        <button id="btn-play-pause" class="transport-btn play-active tooltip-trigger" data-tooltip="Play / Pause Replay [Space]">
-          <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-        </button>
-
-        <button id="btn-step-fwd" class="transport-btn tooltip-trigger" data-tooltip="Next Frame (+1h)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="5 4 15 12 5 20 5 4"></polygon>
-          </svg>
-        </button>
-
-        <button id="btn-step-end" class="transport-btn tooltip-trigger" data-tooltip="Last hour of the mission window">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="5 4 15 12 5 20 5 4"></polygon>
-            <line x1="19" y1="5" x2="19" y2="19"></line>
-          </svg>
-        </button>
-      </div>
-
-      <!-- Numerical Frame / Time Inputs -->
-      <div class="frame-inputs">
-        <div class="field-item" data-tooltip="Current simulation hour (0 to 8759 scrubbable across full year 2027)">
-          <label>Hour</label>
-          <input type="number" id="frame-input" class="blender-num-input" min="0" max="8759" value="0" />
-        </div>
-        <div class="field-item" data-tooltip="Simulation / Mission Start Hour">
-          <label>Start</label>
-          <input type="number" id="window-start-input" class="blender-num-input" value="0" readonly />
-        </div>
-        <div class="field-item" data-tooltip="Simulation / Mission End Hour (8759 = full year 2027)">
-          <label>End</label>
-          <input type="number" id="window-end-input" class="blender-num-input" value="8759" readonly />
-        </div>
-        <div class="field-item" data-tooltip="Launch delay in days (0-30). Shifts the mission window.">
-          <label>Delay d</label>
-          <input type="number" id="delay-input" class="blender-num-input" min="0" max="30" value="0" />
-        </div>
-      </div>
-
-      <!-- Playback Speed -->
-      <div class="speed-control">
-        <label>Playback</label>
-        <select id="speed-selector" class="blender-select">
-          <option value="1">1 fps</option>
-          <option value="10" selected>10 fps</option>
-          <option value="50">50 fps</option>
-          <option value="200">200 fps</option>
-        </select>
-      </div>
-
-      <!-- Ephemeris Readout -->
-      <div class="timeline-ephemeris">
-        <span id="time-iso-text">—</span>
-        <span class="ephem-values">
-          SUN: <b id="sun-coords-text">—</b> ·
-          EARTH: <b id="earth-coords-text">—</b>
-        </span>
-      </div>
-
-      <!-- Inline Overlay Legend -->
-      <div class="legend-inline">
-        <div id="legend-slope" class="legend-bar" style="display: none;">
-          <span>SLOPE</span>
-          <div class="legend-gradient slope"></div>
-          <span>0°–25°+</span>
-        </div>
-        <div id="legend-rock" class="legend-bar" style="display: none;">
-          <span>ROCK</span>
-          <div class="legend-gradient rock"></div>
-          <span>0%–25%+</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Scrubber Ruler & Slider -->
-    <div class="timeline-scrubber-area">
-      <!-- Tick labels and slider range are set from the loaded mission window (main.js). -->
-      <div id="frame-ticks" class="frame-ticks"></div>
-      <input type="range" id="time-slider" class="timeline-range" min="0" max="0" value="0" />
-    </div>
-  </div>
-
-  <!-- Blender-Style Bottom Footer Status Bar -->
-  <footer class="blender-footer-bar">
-    <div class="footer-left">
-      <span class="keycap-hint"><kbd>LMB Drag</kbd> Look View</span>
-      <span class="keycap-hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Surface Walk</span>
-      <span class="keycap-hint"><kbd>Shift</kbd> Sprint</span>
-      <span class="keycap-hint"><kbd>Dbl-Click</kbd> Lock Sun/Earth Tracker</span>
-      <span class="keycap-hint"><kbd>R</kbd> Reset Mast Position</span>
-      <span class="keycap-hint"><kbd>Space</kbd> Play / Pause</span>
-    </div>
-    <div class="footer-right">
-      <span class="keycap-hint" style="opacity: 0.8;">Visual aid. Numbers come from the engine; ray-cast shown for consistency check.</span>
-      <span id="data-provenance-text">DATA: loading…</span>
-    </div>
-  </footer>
-
-  <!-- Blender-Style Dark Graphite Loading Screen -->
-  <div id="loading-overlay" class="loading-overlay" style="display: none;">
-    <div class="loading-modal">
-      <div class="loading-spinner"></div>
-      <div class="loading-title">LOADING LUNAR TOPOGRAPHY...</div>
-      <div id="loading-status-text" class="loading-subtitle">Streaming NASA Moon Trek LOLA Elevation & LROC WAC Imagery</div>
-    </div>
-  </div>
-
-  <!-- Expedition Feasibility Planner (modal) -->
-  <div id="expedition-modal" class="blender-modal-backdrop" style="display: none;">
-    <div class="blender-modal-card expedition-card">
-      <div class="modal-header">
-        <div class="modal-title-wrap">
-          <svg class="modal-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-            <line x1="16" y1="2" x2="16" y2="6"></line>
-            <line x1="8" y1="2" x2="8" y2="6"></line>
-            <line x1="3" y1="10" x2="21" y2="10"></line>
-          </svg>
-          <span class="modal-title">EXPEDITION FEASIBILITY PLANNER</span>
-        </div>
-        <button id="btn-close-expedition" class="modal-close-btn" aria-label="Close planner">×</button>
-      </div>
-
-      <div class="modal-body">
-        <p class="modal-desc">Pick a date range in 2027. Sun and Earth visibility come from the hourly flags of the
-          site loaded in the 3D view; battery is a scenario assumption, not NASA data.</p>
-
-        <div class="expedition-form-grid">
-          <div class="form-group">
-            <label for="exp-start-date">Start date (UTC)</label>
-            <input type="date" id="exp-start-date" class="blender-date-input" value="2027-01-09" min="2027-01-01" max="2027-12-31" />
-          </div>
-          <div class="form-group">
-            <label for="exp-end-date">End date (UTC)</label>
-            <input type="date" id="exp-end-date" class="blender-date-input" value="2027-03-10" min="2027-01-02" max="2027-12-31" />
-          </div>
-        </div>
-
-        <div class="expedition-presets">
-          <span class="preset-label">DURATION PRESETS:</span>
-          <button class="preset-chip" data-days="14">14 Days (Standard)</button>
-          <button class="preset-chip" data-days="30">1 Month (30d)</button>
-          <button class="preset-chip active" data-days="60">2 Months (60d)</button>
-          <button class="preset-chip" data-days="90">3 Months (90d)</button>
-          <button class="preset-chip" data-days="365">Full Year 2027</button>
-        </div>
-
-        <button id="btn-run-expedition-calc" class="blender-action-btn primary-action">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          <span>CALCULATE EXPEDITION FEASIBILITY</span>
-        </button>
-
-        <!-- Live Evaluation Results -->
-        <div id="expedition-results-card" class="expedition-results-card">
-          <div class="results-header">
-            <span id="exp-status-badge" class="exp-badge badge-pass">EXPEDITION: SUCCESSFUL</span>
-            <span id="exp-site-name" class="exp-site-tag">Shackleton rim (Site04)</span>
-          </div>
-
-          <div id="exp-failure-reason" class="exp-failure-alert" style="display: none;"></div>
-
-          <div class="exp-metrics-grid">
-            <div class="exp-metric-cell">
-              <span class="metric-label">DURATION</span>
-              <span id="exp-metric-duration" class="metric-val">—</span>
+      <div class="panel-scroll">
+        <!-- MISSION -->
+        <section class="tabpane" data-pane="mission">
+          <div id="verdict" class="verdict" data-state="na">
+            <div class="verdict-row">
+              <span class="verdict-word" id="verdict-word">—</span>
+              <span class="verdict-sub micro" id="verdict-sub">—</span>
             </div>
-            <div class="exp-metric-cell">
-              <span class="metric-label">SUNLIGHT ILLUMINATION</span>
-              <span id="exp-metric-sun" class="metric-val highlight-sun">—</span>
-            </div>
-            <div class="exp-metric-cell">
-              <span class="metric-label">EARTH COMM LINE-OF-SIGHT</span>
-              <span id="exp-metric-earth" class="metric-val highlight-earth">—</span>
-            </div>
-            <div class="exp-metric-cell">
-              <span class="metric-label">LONGEST CONTINUOUS NIGHT</span>
-              <span id="exp-metric-night" class="metric-val">—</span>
-            </div>
-            <div class="exp-metric-cell">
-              <span class="metric-label">LONGEST COMM BLACKOUT</span>
-              <span id="exp-metric-gap" class="metric-val">—</span>
-            </div>
-            <div class="exp-metric-cell">
-              <span class="metric-label">MINIMUM BATTERY SOC</span>
-              <span id="exp-metric-battery" class="metric-val highlight-bat">—</span>
+            <p id="verdict-text" class="verdict-text">loading the computed data…</p>
+            <div class="verdict-actions">
+              <button type="button" class="pill small" id="btn-show-3d" hidden>Show it in 3D →</button>
             </div>
           </div>
 
-          <button id="btn-apply-expedition-timeline" class="blender-action-btn apply-btn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            <span>APPLY EXPEDITION TO 3D SIMULATION TIMELINE</span>
-          </button>
-        </div>
+          <div class="block">
+            <div class="field-row">
+              <label class="micro" for="in-start">Nominal landing (UTC)</label>
+              <input id="in-start" type="date" min="2027-01-01" max="2027-12-31" />
+            </div>
+            <div class="slip">
+              <div class="slip-head">
+                <label class="micro" for="in-delay">Launch slip</label>
+                <output id="out-delay" class="slip-value">+0 d</output>
+              </div>
+              <input id="in-delay" type="range" min="0" max="30" step="1" value="0" />
+              <p class="hint" id="slip-land">—</p>
+            </div>
+            <div class="field-row">
+              <label class="micro" for="in-dur">Mission length</label>
+              <div class="num-unit"><input id="in-dur" type="number" min="1" max="30" step="1" /><span>days</span></div>
+            </div>
+          </div>
+
+          <details class="block req">
+            <summary><span class="micro">Requirements</span><span class="hint" id="req-summary">—</span></summary>
+            <div class="req-grid">
+              <label><span class="micro">Min. sunlight</span><span class="num-unit"><input id="in-minsun" type="number" min="0" max="100" /><span>%</span></span></label>
+              <label><span class="micro">Max. night</span><span class="num-unit"><input id="in-night" type="number" min="0" max="720" /><span>h</span></span></label>
+              <label><span class="micro">Max. comm gap</span><span class="num-unit"><input id="in-gap" type="number" min="0" max="720" /><span>h</span></span></label>
+            </div>
+            <p class="micro sub-head">Lander battery · scenario assumption, not NASA data</p>
+            <div class="req-grid">
+              <label><span class="micro">Battery</span><span class="num-unit"><input id="in-cap" type="number" min="0" step="50" /><span>Wh</span></span></label>
+              <label><span class="micro">Solar</span><span class="num-unit"><input id="in-solar" type="number" min="0" step="10" /><span>W</span></span></label>
+              <label><span class="micro">Load</span><span class="num-unit"><input id="in-load" type="number" min="0" step="5" /><span>W</span></span></label>
+            </div>
+          </details>
+
+          <div class="block">
+            <h2 class="h-sec">In this window</h2>
+            <div class="metrics" id="metrics"></div>
+            <p class="hint" id="metrics-note">—</p>
+          </div>
+
+          <div class="block">
+            <h2 class="h-sec">Right now <span class="hint mono" id="now-time">—</span></h2>
+            <div class="now" id="now"></div>
+            <figure class="skyline">
+              <svg id="skyline" viewBox="0 0 360 120" preserveAspectRatio="none" role="img" aria-label="Terrain horizon around the site with the Sun and Earth tracks"></svg>
+              <figcaption class="hint">Skyline from the 2 m mast: terrain horizon (grey), Sun (gold) and Earth (blue) during the window. Dots are hourly; rings are now.</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <!-- COMPARE -->
+        <section class="tabpane" data-pane="compare" hidden>
+          <div class="block">
+            <div class="sec-head">
+              <h2 class="h-sec">All candidate sites</h2>
+              <label class="micro sort">Sort by
+                <select id="sort-by">
+                  <option value="bothPct">Sun and Earth %</option>
+                  <option value="sunPct">Sun %</option>
+                  <option value="earthPct">Earth %</option>
+                  <option value="longestNightH">Longest night</option>
+                  <option value="longestCommGapH">Longest comm gap</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-wrap"><table class="rank" id="rank"></table></div>
+            <p class="hint" id="rank-note">—</p>
+          </div>
+
+          <div class="block">
+            <h2 class="h-sec">How much slip can each site take?</h2>
+            <p class="hint">Each square is one more day of launch slip, 0 to 30. Tap one to load it.</p>
+            <div class="strip" id="strip"></div>
+          </div>
+
+          <div class="block">
+            <h2 class="h-sec">Landing dates that work in 2027</h2>
+            <p class="hint">On-time landings on every day of 2027, with your mission length and requirements.</p>
+            <div class="cal" id="cal"></div>
+          </div>
+        </section>
+
+        <!-- ABOUT -->
+        <section class="tabpane about" data-pane="about" hidden>
+          <div class="block">
+            <h2 class="h-sec">What LunaWise answers</h2>
+            <p>A commercial lander at the lunar south pole needs sunlight for power and a line of sight to Earth for radio. The Sun skims the horizon there, so a ridge tens of kilometres away decides whether a site is lit, and Earth bobs low enough to slip behind hills for days. When a launch slips, the whole pattern shifts. LunaWise shows which sites still meet your requirements, which fail, when and why.</p>
+          </div>
+          <div class="block">
+            <h2 class="h-sec">How it is computed</h2>
+            <ul class="plain">
+              <li><b>Sun and Earth positions:</b> every hour of 2027, from NASA NAIF SPICE kernels in the MOON_ME frame, cross-checked against JPL Horizons.</li>
+              <li><b>Terrain horizon:</b> 720 directions from each site, out to 200 km, over LOLA 5 m site maps and the 20 m polar map, with the Moon's curvature included. Mast height 2 m.</li>
+              <li><b>Visible</b> means the Sun's or Earth's disc centre is above the terrain horizon in its direction (point Sun/Earth).</li>
+              <li><b>Mission rules</b> (window, slip, first failure, battery) run in your browser from those hourly flags, in one shared module.</li>
+              <li><b>Ray-cast check:</b> a separate ray-march over the heightmaps re-tests every hour in the background. The 3D views show how often it agrees with the engine.</li>
+            </ul>
+          </div>
+          <div class="block">
+            <h2 class="h-sec">Checked against NASA Goddard</h2>
+            <p class="hint">NASA Goddard PGDA product 69: 18.6-year average at the surface, 60 m pixel. Ours: 2027, hourly, at the surface (0 m) to compare like with like; mission results use the 2 m mast. Difference in percentage points.</p>
+            <div class="table-wrap"><table class="valid" id="valid"></table></div>
+            <p class="hint">Likely reasons for differences (likely, not proven): the 60 m pixel averages lower ground around these high points; a different time span; a different observer height; Goddard counts Earth visible if any part of its disc clears the terrain, we use the disc centre.</p>
+          </div>
+          <div class="block">
+            <h2 class="h-sec">Limits, stated plainly</h2>
+            <ul class="plain">
+              <li>Most 5 m terrain pixels are interpolated between laser tracks (about 90%, Barker et al. 2021).</li>
+              <li>Point Sun and Earth, 2 m mast, one-hour steps, 2027 only.</li>
+              <li>"Earth visible" is a clear geometric line of sight, not a radio link budget.</li>
+              <li>The 3D lander view draws terrain out to about 30 km; farther ridges are in the horizon line but not drawn as mountains.</li>
+              <li>The battery is a scenario assumption, not an official NASA spacecraft specification.</li>
+              <li>The whole-Moon photo map is a low-resolution mosaic for context only; the south-pole relief is the team's LOLA heightmaps.</li>
+            </ul>
+          </div>
+          <div class="block">
+            <h2 class="h-sec">Sources</h2>
+            <ul class="plain small">
+              <li>LOLA 5 m south pole site maps, NASA Goddard PGDA product 78 (Barker et al. 2021, Planetary and Space Science 203, 105119).</li>
+              <li>LOLA polar grid LDEM_80S_20M, LOLA PDS archive.</li>
+              <li>Average Sun and Earth visibility maps, NASA Goddard PGDA product 69 (validation).</li>
+              <li>SPICE kernels, NASA NAIF. JPL Horizons (independent cross-check).</li>
+              <li>Global Moon mosaic: LRO WAC, NASA / GSFC / Arizona State University.</li>
+            </ul>
+          </div>
+          <div class="block">
+            <h2 class="h-sec">Team OPUS · NASA Space Apps 2026, Kolkata</h2>
+            <p class="small">Avasyu Roy (engine), Debarghya Bose (terrain), Soumik Bhuniya (dashboard), Debanik Dey (3D simulation), Aheli Jana (validation), Ashika Ghosh (story and submission).</p>
+            <p class="hint">AI use: AI tools helped write code and text. Every number on screen comes from the team's computed data; AI produced none of them. This is a team project, not a NASA product.</p>
+          </div>
+        </section>
       </div>
+    </aside>
+
+    <!-- 3D HUD (lander / orbit views) -->
+    <aside class="hud" id="hud" aria-label="Live status" hidden>
+      <div class="hud-row" id="hud-sun"><i></i><span class="micro">Sun</span><b>—</b><small>—</small></div>
+      <div class="hud-row" id="hud-earth"><i></i><span class="micro">Earth</span><b>—</b><small>—</small></div>
+      <div class="hud-row plain"><span class="micro">Ray-cast</span><small id="hud-ray">—</small></div>
+      <div class="hud-tools">
+        <button type="button" class="tool" id="t-sun" title="Track the Sun">Sun</button>
+        <button type="button" class="tool" id="t-earth" title="Track Earth">Earth</button>
+        <button type="button" class="tool" id="t-north" title="Face lunar north">North</button>
+        <button type="button" class="tool danger" id="t-fail" title="Jump to the first failure">Failure</button>
+        <button type="button" class="tool is-on" id="t-mask" title="Engine horizon line">Horizon line</button>
+        <button type="button" class="tool" id="t-slope" title="Colour terrain by slope">Slope</button>
+        <button type="button" class="tool" id="t-scale" title="Enlarge the Sun and Earth">Size ×1</button>
+      </div>
+      <p class="hud-note" id="hud-scale-note" hidden>Sun and Earth enlarged for visibility. True sizes are drawn at ×1.</p>
+      <p class="hud-note" id="hud-walk" hidden>—</p>
+      <p class="hud-note">Visual aid. Numbers come from the engine; ray-cast shown for consistency check.</p>
+      <p class="hud-keys" id="hud-keys">Drag to look · W A S D to walk · double-click to track the Sun / Earth</p>
+    </aside>
+
+    <!-- Globe legend (Moon view) -->
+    <div class="legend" id="legend">
+      <span><i class="dot pass"></i>meets requirements</span>
+      <span><i class="dot fail"></i>fails</span>
+      <span><i class="dot na"></i>window runs past 2027</span>
+      <span><i class="ray sun"></i>to Sun</span>
+      <span><i class="ray earth"></i>to Earth (red = blocked)</span>
+      <span class="legend-note">True scale. South pole relief: team LOLA heightmaps, lit by the computed Sun.</span>
     </div>
+
+    <!-- Bottom dock: time controls + mission timeline -->
+    <footer class="dock" id="dock">
+      <div class="dock-head">
+        <div class="transport">
+          <button type="button" class="tbtn" id="b-start" aria-label="Go to landing">⏮</button>
+          <button type="button" class="tbtn" id="b-back" aria-label="Back one hour">‹</button>
+          <button type="button" class="tbtn play" id="b-play" aria-label="Play">▶</button>
+          <button type="button" class="tbtn" id="b-fwd" aria-label="Forward one hour">›</button>
+          <select id="b-speed" aria-label="Playback speed">
+            <option value="1">1 h/s</option>
+            <option value="10" selected>10 h/s</option>
+            <option value="50">50 h/s</option>
+            <option value="200">200 h/s</option>
+          </select>
+        </div>
+        <div class="clock">
+          <span class="clock-time mono" id="clock-time">—</span>
+          <span class="micro" id="clock-mh">—</span>
+        </div>
+        <div class="ephem mono" id="ephem">—</div>
+      </div>
+      <div class="tl-wrap">
+        <canvas id="timeline" tabindex="0" aria-label="Mission timeline. Click or drag to move through time. Arrow keys step one hour."></canvas>
+        <div class="tl-tip" id="tl-tip" hidden></div>
+      </div>
+    </footer>
+
+    <div class="toast" id="toast" role="status" hidden></div>
+    <div class="loading" id="loading"><span class="spinner"></span><span id="loading-text">loading the computed data…</span></div>
   </div>
 
-  <script type="module" src="./src/main.js"></script>
+  <script type="module" src="./src/dashboard/app.js"></script>
+  <script type="module" src="./src/dashboard/explorer.js"></script>
 </body>
 </html>
