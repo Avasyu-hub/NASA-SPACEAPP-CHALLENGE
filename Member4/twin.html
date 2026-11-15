@@ -79,6 +79,33 @@
         </svg>
         <span>Expedition Planner</span>
       </button>
+
+      <div class="header-separator"></div>
+
+      <!-- Glowing Mission Failure Warning Icon Widget (between Expedition Planner and Battery) -->
+      <div id="mission-failure-widget" class="failure-warning-widget" style="display: none;" role="button" tabindex="0" title="Mission Failure Alert · Click for full diagnosis">
+        <div class="warning-icon-wrap">
+          <svg class="warning-alert-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span class="warning-halo-ring"></span>
+        </div>
+        <span class="warning-pill-text">MISSION FAILED</span>
+
+        <!-- Hover Short Reason Popover -->
+        <div id="failure-hover-popover" class="failure-hover-popover">
+          <div class="popover-top-row">
+            <span id="popover-category-tag" class="popover-cat-tag">COMMUNICATION CUT</span>
+            <span id="popover-epoch-time" class="popover-epoch-text">—</span>
+          </div>
+          <div id="popover-short-reason" class="popover-body-reason">
+            Earth direct line-of-sight lost for >24 h.
+          </div>
+          <div class="popover-click-hint">Click icon for detailed root cause analysis & 3D view</div>
+        </div>
+      </div>
     </div>
 
     <!-- Center/Right Status & Battery Telemetry -->
@@ -140,18 +167,7 @@
     </div>
   </div>
 
-  <!-- Critical Failure Alert Banner -->
-  <div id="failure-banner" class="failure-banner" style="display: none;">
-    <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
-      <line x1="12" y1="9" x2="12" y2="13"></line>
-      <line x1="12" y1="17" x2="12.01" y2="17"></line>
-    </svg>
-    <div class="failure-msg-wrap">
-      <span class="failure-title">MISSION FAILURE DETECTED</span>
-      <span id="failure-banner-text"></span>
-    </div>
-  </div>
+
 
   <!-- Blender-Style Vertical Tool Dock (Right Side) -->
   <aside class="blender-tools-dock">
@@ -281,7 +297,7 @@
 
       <!-- Numerical Frame / Time Inputs -->
       <div class="frame-inputs">
-        <div class="field-item" data-tooltip="Current simulation hour (0 to 8759 scrubbable across full year 2027)">
+        <div class="field-item" data-tooltip="Current simulation hour (scrubbable)">
           <label>Hour</label>
           <input type="number" id="frame-input" class="blender-num-input" min="0" max="8759" value="0" />
         </div>
@@ -289,7 +305,7 @@
           <label>Start</label>
           <input type="number" id="window-start-input" class="blender-num-input" value="0" readonly />
         </div>
-        <div class="field-item" data-tooltip="Simulation / Mission End Hour (8759 = full year 2027)">
+        <div class="field-item" data-tooltip="Simulation / Mission End Hour">
           <label>End</label>
           <input type="number" id="window-end-input" class="blender-num-input" value="8759" readonly />
         </div>
@@ -297,6 +313,14 @@
           <label>Delay d</label>
           <input type="number" id="delay-input" class="blender-num-input" min="0" max="30" value="0" />
         </div>
+      </div>
+
+      <!-- Active Expedition Indicator & Reset -->
+      <div id="timeline-expedition-badge" class="timeline-expedition-badge" style="display: none;">
+        <span class="badge-dot"></span>
+        <span class="badge-title">EXPEDITION:</span>
+        <span id="timeline-exp-range-text" class="badge-range">—</span>
+        <button id="btn-clear-expedition" class="badge-clear-btn" title="Reset timeline to full year (0–8759)">× Reset Full Year</button>
       </div>
 
       <!-- Playback Speed -->
@@ -417,7 +441,7 @@
         <!-- Live Evaluation Results -->
         <div id="expedition-results-card" class="expedition-results-card">
           <div class="results-header">
-            <span id="exp-status-badge" class="exp-badge badge-pass">EXPEDITION: SUCCESSFUL</span>
+            <span id="exp-status-badge" class="exp-badge badge-pass">EXPEDITION: FEASIBLE (GO)</span>
             <span id="exp-site-name" class="exp-site-tag">Shackleton rim (Site04)</span>
           </div>
 
@@ -425,7 +449,7 @@
 
           <div class="exp-metrics-grid">
             <div class="exp-metric-cell">
-              <span class="metric-label">DURATION</span>
+              <span class="metric-label">TOTAL DURATION</span>
               <span id="exp-metric-duration" class="metric-val">—</span>
             </div>
             <div class="exp-metric-cell">
@@ -450,11 +474,127 @@
             </div>
           </div>
 
+          <!-- Hour-to-Hour Expedition Profile Ribbon -->
+          <div class="exp-ribbon-container">
+            <div class="exp-ribbon-header">
+              <span class="ribbon-title">HOUR-BY-HOUR EXPEDITION PROFILE</span>
+              <div class="ribbon-legend">
+                <span class="leg-item"><i class="leg-color leg-sun"></i> Sun Lit</span>
+                <span class="leg-item"><i class="leg-color leg-earth"></i> Earth Contact</span>
+                <span class="leg-item"><i class="leg-color leg-bat"></i> Battery</span>
+                <span class="leg-item"><i class="leg-color leg-fail"></i> Failure Hour</span>
+              </div>
+            </div>
+            <canvas id="exp-hourly-strip" class="exp-hourly-strip" height="54"></canvas>
+            <div id="exp-strip-hover-info" class="exp-strip-hover-info">
+              <span>Hover across the ribbon for exact hourly ephemeris & contact readout</span>
+            </div>
+          </div>
+
+          <!-- Hour-to-Hour Connection Summary & Verdict Analysis -->
+          <div class="exp-analysis-card">
+            <div class="analysis-row">
+              <span class="analysis-icon">📡</span>
+              <div class="analysis-body">
+                <span class="analysis-label">EARTH DIRECT CONTACT PROFILE</span>
+                <span id="exp-detail-earth" class="analysis-text">Evaluating contact intervals…</span>
+              </div>
+            </div>
+            <div class="analysis-row">
+              <span class="analysis-icon">☀️</span>
+              <div class="analysis-body">
+                <span class="analysis-label">SOLAR ILLUMINATION & THERMAL ENVIRONMENT</span>
+                <span id="exp-detail-sun" class="analysis-text">Evaluating lighting periods…</span>
+              </div>
+            </div>
+            <div class="analysis-row verdict-row">
+              <span class="analysis-icon">⚖️</span>
+              <div class="analysis-body">
+                <span class="analysis-label">FINAL EXPEDITION DECISION</span>
+                <span id="exp-detail-verdict" class="analysis-text">Awaiting calculation…</span>
+              </div>
+            </div>
+          </div>
+
           <button id="btn-apply-expedition-timeline" class="blender-action-btn apply-btn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
-            <span>APPLY EXPEDITION TO 3D SIMULATION TIMELINE</span>
+            <span>APPLY EXPEDITION TO 3D SIMULATION TIMELINE (SHRINK TIMELINE)</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mission Failure Detailed Root Cause Analysis Modal -->
+  <div id="failure-detail-modal" class="blender-modal-backdrop" style="display: none;">
+    <div class="blender-modal-card failure-modal-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <svg class="modal-title-icon failure-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span class="modal-title">MISSION FAILURE DETAILED ANALYSIS</span>
+        </div>
+        <button id="btn-close-failure-modal" class="modal-close-btn" aria-label="Close failure analysis">×</button>
+      </div>
+
+      <div class="modal-body failure-modal-body">
+        <div class="failure-detail-summary-card">
+          <div class="fail-badge-row">
+            <span id="failure-detail-kind" class="fail-kind-badge">COMMUNICATION CUT WITH EARTH</span>
+            <span id="failure-detail-epoch" class="fail-epoch-label">Mission Hour 25 (2027-01-10 01:00 UTC)</span>
+          </div>
+          <div id="failure-detail-headline" class="fail-headline-text">
+            Earth direct line-of-sight communication blackout exceeded the Artemis maximum threshold of 24 consecutive hours.
+          </div>
+        </div>
+
+        <div class="failure-metrics-grid">
+          <div class="diag-cell">
+            <span class="diag-label">CRITICAL CONSTRAINT</span>
+            <span id="diag-constraint" class="diag-val">Earth Line-of-Sight ≤ 24 h</span>
+          </div>
+          <div class="diag-cell">
+            <span class="diag-label">CONSECUTIVE RUN</span>
+            <span id="diag-run" class="diag-val highlight-danger">25 h (Exceeds Limit)</span>
+          </div>
+          <div class="diag-cell">
+            <span class="diag-label">OBSTRUCTING AZIMUTH</span>
+            <span id="diag-az" class="diag-val">246.3° (Terrain Rim)</span>
+          </div>
+          <div class="diag-cell">
+            <span class="diag-label">BATTERY STATE OF CHARGE</span>
+            <span id="diag-bat" class="diag-val">82% (1230 Wh)</span>
+          </div>
+        </div>
+
+        <div class="failure-analysis-narrative">
+          <span class="diag-section-label">DIAGNOSTIC & ROOT CAUSE</span>
+          <p id="diag-narrative" class="diag-narrative-text">
+            At this mission epoch and lunar coordinate, the Earth dips below the local crater rim, cutting off direct radio communication back to Earth ground stations. The uninterrupted blackout duration violates the Artemis crew and lander safety requirement.
+          </p>
+        </div>
+
+        <div class="failure-modal-actions">
+          <button id="btn-failure-jump-3d" class="blender-action-btn primary-action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 2v3m0 14v3M2 12h3m14 0h3"></path>
+            </svg>
+            <span>JUMP TO FAILURE HOUR & CAMERA IN 3D</span>
+          </button>
+          <button id="btn-failure-open-planner" class="blender-action-btn secondary-action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <span>ADJUST DATES IN EXPEDITION PLANNER</span>
           </button>
         </div>
       </div>

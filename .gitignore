@@ -1,4 +1,6 @@
-# Dependencies
+# Wrangler / Cloudflare
+.wrangler/
+
 node_modules/
 .pnp
 .pnp.js

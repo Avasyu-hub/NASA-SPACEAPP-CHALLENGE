@@ -335,7 +335,16 @@ export class LanderSimulation {
         this.agreement = this.dataset.syntheticAgreement;
       }
 
-      this.evaluateMission();
+      if (this.expeditionWindow) {
+        this.setExpeditionWindow(
+          this.expeditionWindow.startIdx,
+          this.expeditionWindow.endIdx,
+          this.expeditionWindow.startDate,
+          this.expeditionWindow.endDate
+        );
+      } else {
+        this.evaluateMission();
+      }
 
       if (this.mode === 'overview') {
         if (this.terrain && this.terrain.nearMesh) this.terrain.nearMesh.visible = false;
@@ -346,7 +355,7 @@ export class LanderSimulation {
       // Reset lander walking position for the new site
       this.resetLanderPosition();
 
-      this.setHourIndex(this.dataset.window.startIdx);
+      this.setHourIndex(this.expeditionWindow ? this.expeditionWindow.startIdx : this.dataset.window.startIdx);
     } finally {
       this.onLoadingStateChange(false);
     }
@@ -430,7 +439,16 @@ export class LanderSimulation {
     // Rule 1: Never hardcode ray-cast agreement percentages. Null displays "— (candidate sites only)".
     this.agreement = null;
 
-    this.evaluateMission();
+    if (this.expeditionWindow) {
+      this.setExpeditionWindow(
+        this.expeditionWindow.startIdx,
+        this.expeditionWindow.endIdx,
+        this.expeditionWindow.startDate,
+        this.expeditionWindow.endDate
+      );
+    } else {
+      this.evaluateMission();
+    }
 
     if (this.mode === 'overview') {
       if (this.terrain && this.terrain.nearMesh) this.terrain.nearMesh.visible = false;
@@ -439,7 +457,7 @@ export class LanderSimulation {
     }
 
     this.resetLanderPosition();
-    this.setHourIndex(this.dataset.window.startIdx);
+    this.setHourIndex(this.expeditionWindow ? this.expeditionWindow.startIdx : this.dataset.window.startIdx);
     this.onLoadingStateChange(false);
   }
 
@@ -469,7 +487,13 @@ export class LanderSimulation {
     if (!this.dataset) return;
     const win = this.dataset.window || { startIdx: 0, endIdx: 336, hours: 336 };
     const totalH = this.dataset.totalHours || 8760;
-    this.currentHourIndex = Math.max(0, Math.min(totalH - 1, Math.round(index)));
+    let minH = 0;
+    let maxH = totalH - 1;
+    if (this.expeditionWindow) {
+      minH = this.expeditionWindow.startIdx;
+      maxH = this.expeditionWindow.endIdx;
+    }
+    this.currentHourIndex = Math.max(minH, Math.min(maxH, Math.round(index)));
 
     const h = this.currentHourIndex;
     const sunAz = this.dataset.sunAz[h];
@@ -533,6 +557,7 @@ export class LanderSimulation {
       siteId: this.currentSiteId,
       siteName: this.dataset.siteName || this.siteName(this.currentSiteId),
       window: win,
+      expeditionWindow: this.expeditionWindow,
       totalHours: this.dataset.totalHours,
       delayDays: this.mission.delayDays,
       timestamp: this.dataset.timestamps[h],
@@ -628,9 +653,33 @@ export class LanderSimulation {
     }
   }
 
-  setExpeditionWindow(startHour, endHour) {
-    this.expeditionWindow = { startIdx: startHour, endIdx: endHour };
-    this.setHourIndex(startHour);
+  setExpeditionWindow(startHour, endHour, startDateStr = null, endDateStr = null) {
+    this.expeditionWindow = {
+      startIdx: Math.max(0, Math.round(startHour)),
+      endIdx: Math.round(endHour),
+      startDate: startDateStr,
+      endDate: endDateStr,
+    };
+
+    const baseTime = new Date('2027-01-01T00:00:00Z').getTime();
+    const startT = startDateStr
+      ? `${startDateStr}T00:00:00Z`
+      : new Date(baseTime + this.expeditionWindow.startIdx * 3600000).toISOString();
+    const durationDays = (this.expeditionWindow.endIdx - this.expeditionWindow.startIdx) / 24.0;
+
+    this.mission.nominalLandingDate = startT;
+    this.mission.delayDays = 0;
+    this.mission.durationDays = durationDays;
+
+    this.evaluateMission();
+    this.setHourIndex(this.expeditionWindow.startIdx);
+  }
+
+  clearExpeditionWindow() {
+    this.expeditionWindow = null;
+    this.mission = { nominalLandingDate: '2027-01-09T00:00:00Z', delayDays: 0, durationDays: 14 };
+    this.evaluateMission();
+    this.setHourIndex(this.dataset?.window?.startIdx || 0);
   }
 
   /**
@@ -791,8 +840,15 @@ export class LanderSimulation {
         this.lastTickTime = now;
         const step = Math.max(1, Math.floor(this.playbackSpeed / 10));
         const totalH = this.dataset.totalHours || 8760;
+        let minH = 0;
+        let maxH = totalH - 1;
+        if (this.expeditionWindow) {
+          minH = this.expeditionWindow.startIdx;
+          maxH = this.expeditionWindow.endIdx;
+        }
         let nextHour = this.currentHourIndex + step;
-        if (nextHour >= totalH) nextHour = 0;
+        if (nextHour > maxH) nextHour = minH;
+        if (nextHour < minH) nextHour = minH;
         this.setHourIndex(nextHour);
       }
     }

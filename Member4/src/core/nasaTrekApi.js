@@ -269,8 +269,19 @@ export function evaluateCustomExpedition({ siteId, lat, lon, startDate, endDate,
   let visHours = 0;
   let currentNight = 0;
   let maxNight = 0;
+  let currentLit = 0;
+  let maxLit = 0;
   let currentGap = 0;
   let maxGap = 0;
+  let currentConn = 0;
+  let maxConn = 0;
+  let blackoutEvents = 0;
+  let inBlackout = false;
+
+  const hourlySun = new Uint8Array(totalHours);
+  const hourlyEarth = new Uint8Array(totalHours);
+  const hourlyBattery = new Float32Array(totalHours);
+  const hourlyTimestamps = new Array(totalHours);
 
   // Battery model simulation: capacity 1500 Wh, solar 250 W, load 80 W
   let batteryWh = 1500.0;
@@ -281,9 +292,13 @@ export function evaluateCustomExpedition({ siteId, lat, lon, startDate, endDate,
   let batteryFailHour = null;
   let nightFailHour = null;
   let commFailHour = null;
+  let firstFailure = null;
 
   for (let i = 0; i < totalHours; i++) {
     const h = startHour + i;
+    const hourTimestamp = new Date(baseTime + h * 3600000).toISOString().replace('.000', '');
+    hourlyTimestamps[i] = hourTimestamp;
+
     let isLit = 0;
     let isVis = 0;
 
@@ -298,72 +313,155 @@ export function evaluateCustomExpedition({ siteId, lat, lon, startDate, endDate,
       isVis = eph.earthEl > maskEarthEl ? 1 : 0;
     }
 
+    hourlySun[i] = isLit;
+    hourlyEarth[i] = isVis;
+
     if (isLit) {
       litHours++;
+      currentLit++;
+      if (currentLit > maxLit) maxLit = currentLit;
       currentNight = 0;
       batteryWh = Math.min(maxCap, batteryWh + (solarW - loadW));
     } else {
       currentNight++;
       if (currentNight > maxNight) maxNight = currentNight;
+      currentLit = 0;
       batteryWh = Math.max(0, batteryWh - loadW);
       if (batteryWh <= 0 && batteryFailHour === null) {
         batteryFailHour = h;
+        if (!firstFailure) {
+          firstFailure = {
+            kind: 'battery',
+            hourIndex: h,
+            timestamp: hourTimestamp,
+            message: `Battery fully exhausted (0 Wh) at ${hourTimestamp} (Hour ${h}) after ${currentNight}h without solar power.`,
+          };
+        }
       }
       if (currentNight > 36 && nightFailHour === null) {
         nightFailHour = h;
+        if (!firstFailure) {
+          firstFailure = {
+            kind: 'night',
+            hourIndex: h,
+            timestamp: hourTimestamp,
+            message: `Continuous lunar night reached ${currentNight} consecutive hours at ${hourTimestamp} (Limit: 36 h). Thermal limits exceeded.`,
+          };
+        }
       }
     }
+
+    hourlyBattery[i] = batteryWh;
+    if (batteryWh < minBatteryWh) minBatteryWh = batteryWh;
 
     if (isVis) {
       visHours++;
+      currentConn++;
+      if (currentConn > maxConn) maxConn = currentConn;
       currentGap = 0;
+      inBlackout = false;
     } else {
       currentGap++;
       if (currentGap > maxGap) maxGap = currentGap;
+      currentConn = 0;
+      if (!inBlackout) {
+        blackoutEvents++;
+        inBlackout = true;
+      }
       if (currentGap > 24 && commFailHour === null) {
         commFailHour = h;
+        if (!firstFailure) {
+          firstFailure = {
+            kind: 'comm',
+            hourIndex: h,
+            timestamp: hourTimestamp,
+            message: `Earth direct comm blackout reached ${currentGap} consecutive hours at ${hourTimestamp} (Limit: 24 h). Line-of-sight lost.`,
+          };
+        }
       }
     }
-
-    if (batteryWh < minBatteryWh) minBatteryWh = batteryWh;
   }
 
   const sunPct = (litHours / totalHours) * 100.0;
   const earthPct = (visHours / totalHours) * 100.0;
   const minSocPct = (minBatteryWh / maxCap) * 100.0;
+  const darkHours = totalHours - litHours;
+  const blackoutHours = totalHours - visHours;
 
-  // Pass conditions: minSunPct >= 40%, maxNight <= 36h, maxGap <= 24h, minSoc > 0%
-  let passed = true;
-  let failReason = '';
-
-  if (batteryFailHour !== null) {
-    passed = false;
-    const failDate = new Date(baseTime + batteryFailHour * 3600000).toISOString().replace('.000', '');
-    failReason = `Battery exhausted to 0% at ${failDate} (hour ${batteryFailHour}), after extended shadow period.`;
-  } else if (nightFailHour !== null) {
-    passed = false;
-    failReason = `Night duration reached ${maxNight} consecutive hours (limit: 36 h). Exceeds thermal & survival window.`;
-  } else if (commFailHour !== null) {
-    passed = false;
-    failReason = `Earth direct line-of-sight blackout reached ${maxGap} consecutive hours (limit: 24 h).`;
-  } else if (sunPct < 40.0) {
-    passed = false;
-    failReason = `Total sunlight illumination is ${sunPct.toFixed(1)}% (minimum requirement: 40.0%).`;
+  if (firstFailure === null && sunPct < 40.0) {
+    firstFailure = {
+      kind: 'sun_pct',
+      hourIndex: endHour - 1,
+      timestamp: hourlyTimestamps[totalHours - 1],
+      message: `Total solar illumination is ${sunPct.toFixed(1)}% (${litHours} h lit / ${totalHours} h total). Artemis requires ≥ 40.0%.`,
+    };
   }
+
+  const passed = firstFailure === null;
+  const failReason = firstFailure ? firstFailure.message : '';
+
+  const criteria = {
+    earthComm: {
+      passed: maxGap <= 24,
+      val: maxGap,
+      limit: 24,
+      visHours,
+      blackoutHours,
+      earthPct: Number(earthPct.toFixed(1)),
+      maxConn,
+      blackoutEvents,
+    },
+    thermalNight: {
+      passed: maxNight <= 36,
+      val: maxNight,
+      limit: 36,
+      litHours,
+      darkHours,
+      sunPct: Number(sunPct.toFixed(1)),
+      maxLit,
+    },
+    solarBudget: {
+      passed: sunPct >= 40.0,
+      sunPct: Number(sunPct.toFixed(1)),
+      litHours,
+      limit: 40.0,
+    },
+    batteryStorage: {
+      passed: batteryFailHour === null && minBatteryWh > 0,
+      minWh: Math.round(minBatteryWh),
+      minSocPct: Number(minSocPct.toFixed(1)),
+      capacityWh: 1500,
+    },
+  };
 
   const result = {
     startHour,
     endHour,
+    startDate,
+    endDate,
     totalHours,
     durationDays: (totalHours / 24.0).toFixed(1),
+    sunHours: litHours,
+    darkHours,
+    earthHours: visHours,
+    blackoutHours,
     sunPct: Number(sunPct.toFixed(1)),
     earthPct: Number(earthPct.toFixed(1)),
     maxNightHours: maxNight,
     maxCommGapHours: maxGap,
+    maxContinuousConn: maxConn,
+    maxContinuousLit: maxLit,
+    blackoutIntervals: blackoutEvents,
     minBatteryWh: Math.round(minBatteryWh),
     minSocPct: Number(minSocPct.toFixed(1)),
     passed,
     failReason,
+    firstFailure,
+    criteria,
+    hourlySun,
+    hourlyEarth,
+    hourlyBattery,
+    hourlyTimestamps,
   };
 
   expeditionCache.set(cacheKey, result);

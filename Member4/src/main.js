@@ -29,8 +29,17 @@ const batteryBarFill = document.getElementById('battery-bar-fill');
 const batteryPctText = document.getElementById('battery-pct-text');
 const dataProvenanceText = document.getElementById('data-provenance-text');
 
-const failureBanner = document.getElementById('failure-banner');
-const failureBannerText = document.getElementById('failure-banner-text');
+const missionFailureWidget = document.getElementById('mission-failure-widget');
+const popoverCategory = document.getElementById('popover-category-tag');
+const popoverEpochTime = document.getElementById('popover-epoch-time');
+const popoverShortReason = document.getElementById('popover-short-reason');
+
+const failureDetailModal = document.getElementById('failure-detail-modal');
+const btnCloseFailureModal = document.getElementById('btn-close-failure-modal');
+const btnFailureJump3d = document.getElementById('btn-failure-jump-3d');
+const btnFailureOpenPlanner = document.getElementById('btn-failure-open-planner');
+
+let currentActiveFailure = null;
 
 const btnPlayPause = document.getElementById('btn-play-pause');
 const btnStepBack = document.getElementById('btn-step-back');
@@ -63,6 +72,9 @@ const windowEndInput = document.getElementById('window-end-input');
 const totalHoursInput = document.getElementById('total-hours-input');
 const delayInput = document.getElementById('delay-input');
 const frameTicks = document.getElementById('frame-ticks');
+const timelineExpeditionBadge = document.getElementById('timeline-expedition-badge');
+const timelineExpRangeText = document.getElementById('timeline-exp-range-text');
+const btnClearExpedition = document.getElementById('btn-clear-expedition');
 
 const countdownText = document.getElementById('countdown-text');
 const scaleWarningBadge = document.getElementById('scale-warning-badge');
@@ -100,7 +112,7 @@ const sim = new LanderSimulation(
       btnLookEarth.classList.remove('active');
     }
 
-    // Mission window: slider / frame inputs allow full-year scrubbing (0-8759), inputs show bounds.
+    // Mission window: slider / frame inputs allow full-year scrubbing (0-8759) or shrink to expedition window.
     const win = telemetry.window;
     if (win && win.hours) {
       const totalMax = (telemetry.totalHours ? telemetry.totalHours - 1 : 8759);
@@ -115,6 +127,9 @@ const sim = new LanderSimulation(
         }
         windowStartInput.value = 0;
         windowEndInput.value = totalMax;
+        if (timelineExpeditionBadge) timelineExpeditionBadge.style.display = 'none';
+        const scrubberArea = document.querySelector('.timeline-scrubber-area');
+        if (scrubberArea) scrubberArea.classList.remove('expedition-active');
       } else {
         const exp = sim.expeditionWindow;
         if (Number(timeSlider.min) !== exp.startIdx || Number(timeSlider.max) !== exp.endIdx) {
@@ -122,13 +137,22 @@ const sim = new LanderSimulation(
           timeSlider.max = exp.endIdx;
           frameInput.min = exp.startIdx;
           frameInput.max = exp.endIdx;
+          const span = exp.endIdx - exp.startIdx;
           frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
-            `<span>${Math.round(exp.startIdx + (k * (exp.endIdx - exp.startIdx)) / 4)}</span>`).join('');
+            `<span>${Math.round(exp.startIdx + (k * span) / 4)}</span>`).join('');
         }
         windowStartInput.value = exp.startIdx;
         windowEndInput.value = exp.endIdx;
+        if (timelineExpeditionBadge) {
+          timelineExpeditionBadge.style.display = 'flex';
+          if (timelineExpRangeText && exp.startDate && exp.endDate) {
+            timelineExpRangeText.textContent = `${exp.startDate} – ${exp.endDate} (${exp.endIdx - exp.startIdx} h)`;
+          }
+        }
+        const scrubberArea = document.querySelector('.timeline-scrubber-area');
+        if (scrubberArea) scrubberArea.classList.add('expedition-active');
       }
-      if (totalHoursInput) totalHoursInput.value = totalMax;
+      if (totalHoursInput) totalHoursInput.value = sim.expeditionWindow ? (sim.expeditionWindow.endIdx - sim.expeditionWindow.startIdx) : totalMax;
     }
     delayInput.value = telemetry.delayDays;
 
@@ -150,23 +174,24 @@ const sim = new LanderSimulation(
       batteryPctText.textContent = '—';
     }
 
-    // Sun / Earth badges: engine flag, independent ray-cast result in brackets.
-    const ray = (v) => (v ? 'ray: clear' : 'ray: blocked');
+    // Sun / Earth status badges: unblocked / blocked with independent raycast in brackets
+    const rayS = telemetry.sunLitRaycast ? 'clear' : 'blocked';
+    const rayE = telemetry.earthVisRaycast ? 'clear' : 'blocked';
     badgeSun.className = `telemetry-box ${telemetry.sunLitEngine ? 'status-ok' : 'status-blocked'}`;
-    sunStatusText.textContent = `SUN: ${telemetry.sunLitEngine ? 'OK' : 'BLOCKED'} (${ray(telemetry.sunLitRaycast)})`;
+    sunStatusText.textContent = `SUN: ${telemetry.sunLitEngine ? 'UNBLOCKED' : 'BLOCKED'} (${rayS})`;
     badgeEarth.className = `telemetry-box ${telemetry.earthVisEngine ? 'status-ok' : 'status-blocked'}`;
-    earthStatusText.textContent = `EARTH: ${telemetry.earthVisEngine ? 'OK' : 'BLOCKED'} (${ray(telemetry.earthVisRaycast)})`;
+    earthStatusText.textContent = `EARTH: ${telemetry.earthVisEngine ? 'UNBLOCKED' : 'BLOCKED'} (${rayE})`;
 
-    // M4.2 Real-time Countdowns & Ridge Margins in HUD
+    // M4.2 Real-time Countdowns in HUD (compact, regular font)
     if (countdownText) {
-      countdownText.textContent = `${telemetry.nextSunEvent || '—'} · ${telemetry.nextEarthEvent || '—'} (${telemetry.sunMarginDeg}° ridge)`;
+      countdownText.textContent = `${telemetry.nextSunEvent || '—'} · ${telemetry.nextEarthEvent || '—'}`;
     }
 
     // M4.3 Walk Distance Warning
     if (walkWarningBadge && walkWarningText) {
       if (telemetry.walkDistM > 50) {
         walkWarningBadge.style.display = 'flex';
-        walkWarningText.textContent = `Mask line is for the lander position; you are ${telemetry.walkDistM} m away`;
+        walkWarningText.textContent = `Mask line is for lander position (${telemetry.walkDistM} m away)`;
       } else {
         walkWarningBadge.style.display = 'none';
       }
@@ -177,24 +202,51 @@ const sim = new LanderSimulation(
       map2d.updateEphemeris(telemetry);
     }
 
-    // Ray-cast agreement: only computed results, never a typed-in number (Rule 1).
+    // Ray-cast agreement: clean, compact regular font
     if (!telemetry.agreement || !telemetry.agreement.sun) {
       raycastAgreementText.textContent = telemetry.isRealData && !telemetry.isMoonTrekApi
-        ? 'Ray-cast: computing…'
-        : 'Ray-cast: — (candidate sites only)';
+        ? 'computing…'
+        : '—';
     } else {
-      const fmt = (r) => (!r ? 'computing…' : r.error ? 'error'
-        : `${r.pct.toFixed(1)}% of ${r.checked} h${r.outOfGrid ? ` (+${r.outOfGrid} h beyond grid)` : ''}`);
+      const fmt = (r) => (!r ? '—' : r.error ? 'err' : `${r.pct.toFixed(0)}%`);
       const ag = telemetry.agreement;
       raycastAgreementText.textContent = `Sun ${fmt(ag.sun)} · Earth ${fmt(ag.earth)}`;
     }
 
-    // Failure banner: text from missionLogic.failureMessage() on the engine flags.
+    // Mission Failure Warning Icon Widget (in header between Expedition Planner and Battery)
     if (telemetry.failureEvent) {
-      failureBanner.style.display = 'flex';
-      failureBannerText.textContent = telemetry.failureEvent.message;
+      const f = telemetry.failureEvent;
+      currentActiveFailure = f;
+      if (missionFailureWidget) {
+        missionFailureWidget.style.display = 'flex';
+        missionFailureWidget.classList.add('is-failed');
+      }
+
+      let category = 'MISSION CONSTRAINT BREACH';
+      let shortReason = f.message || 'Mission constraint violated.';
+      if (f.kind === 'comm') {
+        category = 'COMMUNICATION CUT WITH EARTH';
+        shortReason = `Earth direct line-of-sight lost for >24 h. Communication blackout reached ${f.durationHours || f.runH || 25} consecutive hours.`;
+      } else if (f.kind === 'night') {
+        category = 'VOID OF SUNLIGHT';
+        shortReason = `Surface in total darkness / void of sunlight for >36 h. Lunar night reached ${f.durationHours || f.runH || 37} consecutive hours.`;
+      } else if (f.kind === 'battery') {
+        category = 'BATTERY DEPLETION';
+        shortReason = `Spacecraft battery storage depleted to 0 Wh after extended shadow period.`;
+      } else if (f.kind === 'sun_pct') {
+        category = 'INSUFFICIENT SUNLIGHT';
+        shortReason = `Total sunlight illumination is ${f.value || 0}%, below the required 40.0% solar budget.`;
+      }
+
+      if (popoverCategory) popoverCategory.textContent = category;
+      if (popoverEpochTime) popoverEpochTime.textContent = telemetry.timestamp ? telemetry.timestamp.slice(5, 16) + ' UTC' : `Hour ${f.hourIndex}`;
+      if (popoverShortReason) popoverShortReason.textContent = shortReason;
     } else {
-      failureBanner.style.display = 'none';
+      currentActiveFailure = null;
+      if (missionFailureWidget) {
+        missionFailureWidget.style.display = 'none';
+        missionFailureWidget.classList.remove('is-failed');
+      }
     }
 
     // Data provenance label
@@ -439,6 +491,13 @@ const expMetricGap = document.getElementById('exp-metric-gap');
 const expMetricBattery = document.getElementById('exp-metric-battery');
 const presetChips = document.querySelectorAll('.preset-chip');
 
+// Hour-to-hour ribbon and detailed analysis elements
+const expHourlyStrip = document.getElementById('exp-hourly-strip');
+const expStripHoverInfo = document.getElementById('exp-strip-hover-info');
+const expDetailEarth = document.getElementById('exp-detail-earth');
+const expDetailSun = document.getElementById('exp-detail-sun');
+const expDetailVerdict = document.getElementById('exp-detail-verdict');
+
 let currentExpeditionResult = null;
 
 if (btnExpeditionPlanner && expeditionModal) {
@@ -486,6 +545,110 @@ if (btnRunExpedition) {
   btnRunExpedition.addEventListener('click', () => runExpeditionCalculation());
 }
 
+/**
+ * Draws the high-resolution hour-by-hour visual profile ribbon
+ */
+function drawExpeditionRibbon(result) {
+  if (!expHourlyStrip || !result) return;
+  const canvas = expHourlyStrip;
+  const W = canvas.clientWidth || 620;
+  const H = 54;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Background
+  ctx.fillStyle = 'rgba(10, 15, 24, 0.95)';
+  ctx.fillRect(0, 0, W, H);
+
+  const n = result.totalHours;
+  if (!n || n <= 0) return;
+
+  // Draw 3 horizontal stripes across the time duration:
+  // Row 1: Sun illumination (y: 2, height: 15)
+  // Row 2: Earth direct contact (y: 19, height: 15)
+  // Row 3: Battery SoC (y: 36, height: 15)
+  for (let px = 0; px < W; px++) {
+    const a = Math.floor((px / W) * n);
+    const b = Math.max(a + 1, Math.floor(((px + 1) / W) * n));
+
+    let sunSum = 0;
+    let earthSum = 0;
+    let batSum = 0;
+    const count = b - a;
+
+    for (let k = a; k < b; k++) {
+      sunSum += result.hourlySun[k] || 0;
+      earthSum += result.hourlyEarth[k] || 0;
+      batSum += (result.hourlyBattery[k] || 0) / 1500.0;
+    }
+
+    const fs = sunSum / count;
+    const fe = earthSum / count;
+    const fb = Math.max(0, Math.min(1, batSum / count));
+
+    // Sun: gold/amber when lit, dark indigo/slate when dark
+    ctx.fillStyle = fs > 0.5 ? 'rgba(250, 204, 21, 0.92)' : 'rgba(30, 41, 59, 0.65)';
+    ctx.fillRect(px, 2, 1, 15);
+
+    // Earth: cyan/blue when in direct line-of-sight, dark crimson when blackout
+    ctx.fillStyle = fe > 0.5 ? 'rgba(56, 189, 248, 0.92)' : 'rgba(185, 28, 28, 0.7)';
+    ctx.fillRect(px, 19, 1, 15);
+
+    // Battery: green height bar
+    ctx.fillStyle = 'rgba(20, 30, 20, 0.8)';
+    ctx.fillRect(px, 36, 1, 15);
+    const barH = Math.max(1, Math.round(15 * fb));
+    ctx.fillStyle = fb < 0.2 ? 'rgba(239, 68, 68, 0.9)' : fb < 0.45 ? 'rgba(245, 158, 11, 0.9)' : 'rgba(74, 222, 128, 0.9)';
+    ctx.fillRect(px, 36 + (15 - barH), 1, barH);
+  }
+
+  // Draw dividers
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.fillRect(0, 18, W, 1);
+  ctx.fillRect(0, 35, W, 1);
+
+  // If there's a failure, mark the exact failure hour with a glowing red vertical needle
+  if (result.firstFailure) {
+    const failIdx = result.firstFailure.hourIndex - result.startHour;
+    if (failIdx >= 0 && failIdx < n) {
+      const fx = Math.round((failIdx / n) * W);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(fx - 1, 0, 2, H);
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+      ctx.fillRect(fx - 3, 0, 6, H);
+    }
+  }
+}
+
+// Hover inspection on the ribbon
+if (expHourlyStrip) {
+  expHourlyStrip.addEventListener('mousemove', (e) => {
+    if (!currentExpeditionResult || !expStripHoverInfo) return;
+    const rect = expHourlyStrip.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const idx = Math.min(currentExpeditionResult.totalHours - 1, Math.floor(relX * currentExpeditionResult.totalHours));
+    const h = currentExpeditionResult.startHour + idx;
+    const ts = currentExpeditionResult.hourlyTimestamps[idx] || '';
+    const isLit = currentExpeditionResult.hourlySun[idx] === 1;
+    const isVis = currentExpeditionResult.hourlyEarth[idx] === 1;
+    const batWh = Math.round(currentExpeditionResult.hourlyBattery[idx]);
+    const batPct = Math.round((batWh * 100) / 1500);
+
+    expStripHoverInfo.innerHTML = `<b>Hour ${h}</b> (${ts} UTC) · Sun: <span class="${isLit ? 'highlight-sun' : ''}">${isLit ? '☀️ LIT' : '🌑 SHADOW'}</span> · Earth: <span class="${isVis ? 'highlight-earth' : 'highlight-bat'}">${isVis ? '📡 IN CONTACT' : '⚠️ BLACKOUT'}</span> · Battery: ${batPct}% (${batWh} Wh)`;
+  });
+
+  expHourlyStrip.addEventListener('mouseleave', () => {
+    if (expStripHoverInfo) {
+      expStripHoverInfo.textContent = 'Hover across ribbon for exact hourly ephemeris & contact readout';
+    }
+  });
+}
+
 function runExpeditionCalculation() {
   if (!expStartDateInput || !expEndDateInput) return;
   const startDate = expStartDateInput.value;
@@ -511,22 +674,46 @@ function runExpeditionCalculation() {
 
   currentExpeditionResult = result;
 
-  // Update UI values
+  // Clear numerical & metric outputs
   if (expMetricDuration) expMetricDuration.textContent = `${result.durationDays} Days (${result.totalHours} h)`;
-  if (expMetricSun) expMetricSun.textContent = `${result.sunPct}%`;
-  if (expMetricEarth) expMetricEarth.textContent = `${result.earthPct}%`;
-  if (expMetricNight) expMetricNight.textContent = `${result.maxNightHours} h (Limit 36 h)`;
-  if (expMetricGap) expMetricGap.textContent = `${result.maxCommGapHours} h (Limit 24 h)`;
+  if (expMetricSun) expMetricSun.textContent = `${result.sunHours} h / ${result.totalHours} h (${result.sunPct}%)`;
+  if (expMetricEarth) expMetricEarth.textContent = `${result.earthHours} h / ${result.totalHours} h (${result.earthPct}%)`;
+  if (expMetricNight) expMetricNight.textContent = `${result.maxNightHours} h (Limit: 36 h)`;
+  if (expMetricGap) expMetricGap.textContent = `${result.maxCommGapHours} h (Limit: 24 h)`;
   if (expMetricBattery) expMetricBattery.textContent = `${result.minSocPct}% (${result.minBatteryWh} Wh)`;
 
+  // Draw the hour-by-hour visual profile ribbon
+  drawExpeditionRibbon(result);
+
+  // Hour-by-hour Earth line-of-sight description
+  if (expDetailEarth) {
+    const isEarthOk = result.criteria.earthComm.passed;
+    expDetailEarth.innerHTML = `Line-of-sight direct contact with Earth is maintained for <b>${result.earthHours} h</b> out of ${result.totalHours} h (<b>${result.earthPct}%</b>). Blackout intervals total ${result.blackoutHours} h across ${result.blackoutIntervals} event(s). Longest continuous blackout lasts <b>${result.maxCommGapHours} h</b> (${isEarthOk ? '<span style="color:#4ade80">✓ meets ≤24 h Artemis constraint</span>' : '<span style="color:#f87171">✗ EXCEEDS 24 h threshold</span>'}). Longest uninterrupted contact is <b>${result.maxContinuousConn} h</b>.`;
+  }
+
+  // Hour-by-hour Solar illumination description
+  if (expDetailSun) {
+    expDetailSun.innerHTML = `Direct solar illumination received for <b>${result.sunHours} h</b> (<b>${result.sunPct}%</b>, minimum required: 40%). Longest uninterrupted night is <b>${result.maxNightHours} h</b> (${result.criteria.thermalNight.passed ? '<span style="color:#4ade80">✓ meets ≤36 h thermal limit</span>' : '<span style="color:#f87171">✗ EXCEEDS 36 h limit</span>'}). Longest continuous sunlit period is <b>${result.maxContinuousLit} h</b>.`;
+  }
+
+  // Final Decision breakdown
+  if (expDetailVerdict) {
+    if (result.passed) {
+      expDetailVerdict.innerHTML = `<span style="color:#4ade80;font-weight:700;">✓ MISSION APPROVED (GO):</span> All Artemis survival constraints satisfied. Comm blackout ≤ 24 h, night period ≤ 36 h, solar fraction ≥ 40%, and battery SoC sustains lander systems throughout (minimum: ${result.minSocPct}% / ${result.minBatteryWh} Wh).`;
+    } else {
+      expDetailVerdict.innerHTML = `<span style="color:#f87171;font-weight:700;">✗ MISSION REJECTED (NO-GO):</span> ${result.failReason}`;
+    }
+  }
+
+  // Status Badge and Failure Reason
   if (expStatusBadge) {
     if (result.passed) {
       expStatusBadge.className = 'exp-badge badge-pass';
-      expStatusBadge.textContent = 'EXPEDITION: SUCCESSFUL';
+      expStatusBadge.textContent = 'EXPEDITION: FEASIBLE (GO)';
       if (expFailureReason) expFailureReason.style.display = 'none';
     } else {
       expStatusBadge.className = 'exp-badge badge-fail';
-      expStatusBadge.textContent = 'EXPEDITION: MISSION FAILURE';
+      expStatusBadge.textContent = 'EXPEDITION: INFEASIBLE (NO-GO)';
       if (expFailureReason) {
         expFailureReason.textContent = `CRITICAL FAILURE DETECTED: ${result.failReason}`;
         expFailureReason.style.display = 'block';
@@ -538,17 +725,170 @@ function runExpeditionCalculation() {
 if (btnApplyExpedition) {
   btnApplyExpedition.addEventListener('click', () => {
     if (!currentExpeditionResult) return;
-    sim.setExpeditionWindow(currentExpeditionResult.startHour, currentExpeditionResult.endHour);
-    timeSlider.min = currentExpeditionResult.startHour;
-    timeSlider.max = currentExpeditionResult.endHour;
-    frameInput.min = currentExpeditionResult.startHour;
-    frameInput.max = currentExpeditionResult.endHour;
-    windowStartInput.value = currentExpeditionResult.startHour;
-    windowEndInput.value = currentExpeditionResult.endHour;
+    const startHour = currentExpeditionResult.startHour;
+    const endHour = currentExpeditionResult.endHour;
+    const startStr = expStartDateInput.value;
+    const endStr = expEndDateInput.value;
+
+    sim.setExpeditionWindow(startHour, endHour, startStr, endStr);
+
+    timeSlider.min = startHour;
+    timeSlider.max = endHour;
+    frameInput.min = startHour;
+    frameInput.max = endHour;
+    windowStartInput.value = startHour;
+    windowEndInput.value = endHour;
+
+    const span = endHour - startHour;
     frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
-      `<span>${Math.round(currentExpeditionResult.startHour + (k * currentExpeditionResult.totalHours) / 4)}</span>`).join('');
+      `<span>${Math.round(startHour + (k * span) / 4)}</span>`).join('');
+
+    if (timelineExpeditionBadge) {
+      timelineExpeditionBadge.style.display = 'flex';
+      if (timelineExpRangeText) {
+        timelineExpRangeText.textContent = `${startStr} – ${endStr} (${span} h)`;
+      }
+    }
+    const scrubberArea = document.querySelector('.timeline-scrubber-area');
+    if (scrubberArea) scrubberArea.classList.add('expedition-active');
+
     if (expeditionModal) expeditionModal.style.display = 'none';
-    sim.setHourIndex(currentExpeditionResult.startHour);
+    sim.setHourIndex(startHour);
+  });
+}
+
+if (btnClearExpedition) {
+  btnClearExpedition.addEventListener('click', () => {
+    sim.clearExpeditionWindow();
+    const totalMax = sim.dataset?.totalHours ? sim.dataset.totalHours - 1 : 8759;
+    timeSlider.min = 0;
+    timeSlider.max = totalMax;
+    frameInput.min = 0;
+    frameInput.max = totalMax;
+    windowStartInput.value = 0;
+    windowEndInput.value = totalMax;
+    frameTicks.innerHTML = Array.from({ length: 5 }, (_, k) =>
+      `<span>${Math.round((k * totalMax) / 4)}</span>`).join('');
+
+    if (timelineExpeditionBadge) timelineExpeditionBadge.style.display = 'none';
+    const scrubberArea = document.querySelector('.timeline-scrubber-area');
+    if (scrubberArea) scrubberArea.classList.remove('expedition-active');
+  });
+}
+
+// -------------------------------------------------------------
+// Detailed Mission Failure Root Cause Analysis Modal
+// -------------------------------------------------------------
+function openFailureDetailModal() {
+  const f = currentActiveFailure || sim.dataset?.firstFailure;
+  if (!f || !failureDetailModal) return;
+
+  const failureDetailKind = document.getElementById('failure-detail-kind');
+  const failureDetailEpoch = document.getElementById('failure-detail-epoch');
+  const failureDetailHeadline = document.getElementById('failure-detail-headline');
+  const diagConstraint = document.getElementById('diag-constraint');
+  const diagRun = document.getElementById('diag-run');
+  const diagAz = document.getElementById('diag-az');
+  const diagBat = document.getElementById('diag-bat');
+  const diagNarrative = document.getElementById('diag-narrative');
+
+  const ts = f.timestamp || (sim.dataset?.timestamps ? sim.dataset.timestamps[f.hourIndex] : '2027');
+  const epochStr = `Mission Hour ${f.hourIndex + 1} (${ts} UTC)`;
+  if (failureDetailEpoch) failureDetailEpoch.textContent = epochStr;
+
+  const site = sim.dataset?.siteName || sim.currentSiteId || 'Candidate Site';
+
+  if (f.kind === 'comm') {
+    if (failureDetailKind) failureDetailKind.textContent = 'COMMUNICATION CUT WITH EARTH';
+    if (failureDetailHeadline) failureDetailHeadline.textContent = `Earth direct line-of-sight communication blackout reached ${f.durationHours || f.runH || 25} consecutive hours (limit: 24 h).`;
+    if (diagConstraint) diagConstraint.textContent = 'Earth Line-of-Sight Blackout ≤ 24 h';
+    if (diagRun) diagRun.textContent = `${f.durationHours || f.runH || 25} h (Artemis Limit: 24 h)`;
+    if (diagAz) diagAz.textContent = f.blockingAz ? `${f.blockingAz.toFixed(1)}° (Crater Rim Obstacle)` : 'Horizon Topography';
+    if (diagNarrative) {
+      diagNarrative.textContent = `At ${site}, the Earth drops below the local crater horizon at ${ts}. Direct line-of-sight radio link back to Earth ground stations is severed for ${f.durationHours || f.runH || 25} continuous hours, exceeding the Artemis 24-hour limit. To maintain crew safety and real-time telemetry, landing dates must be shifted or an orbital relay satellite (e.g. Gateway) must be scheduled.`;
+    }
+  } else if (f.kind === 'night') {
+    if (failureDetailKind) failureDetailKind.textContent = 'VOID OF SUNLIGHT (LUNAR NIGHT)';
+    if (failureDetailHeadline) failureDetailHeadline.textContent = `Continuous darkness / void of sunlight reached ${f.durationHours || f.runH || 37} consecutive hours (thermal limit: 36 h).`;
+    if (diagConstraint) diagConstraint.textContent = 'Continuous Darkness / Night ≤ 36 h';
+    if (diagRun) diagRun.textContent = `${f.durationHours || f.runH || 37} h (Thermal Limit: 36 h)`;
+    if (diagAz) diagAz.textContent = f.blockingAz ? `${f.blockingAz.toFixed(1)}° (Solar Horizon)` : 'Crater Rim Shadow';
+    if (diagNarrative) {
+      diagNarrative.textContent = `At ${site}, low solar elevation angles cast extended shadows that plunge the lander into continuous darkness for ${f.durationHours || f.runH || 37} hours. Without solar illumination, spacecraft temperatures drop below cryogenic survival thresholds and solar arrays produce zero electrical power.`;
+    }
+  } else if (f.kind === 'battery') {
+    if (failureDetailKind) failureDetailKind.textContent = 'BATTERY STORAGE DEPLETION';
+    if (failureDetailHeadline) failureDetailHeadline.textContent = `Spacecraft energy storage reached 0 Wh (1500 Wh battery capacity exhausted during extended shadow).`;
+    if (diagConstraint) diagConstraint.textContent = 'Battery State of Charge > 0%';
+    if (diagRun) diagRun.textContent = `0 Wh / 0% SoC`;
+    if (diagAz) diagAz.textContent = 'Prolonged Shadow Period';
+    if (diagNarrative) {
+      diagNarrative.textContent = `The lander battery (1500 Wh capacity, 80 W baseload) was fully drained after prolonged solar occlusion. Avionics and life support heaters cannot sustain operation without active power generation or expanded battery capacity.`;
+    }
+  } else if (f.kind === 'sun_pct') {
+    if (failureDetailKind) failureDetailKind.textContent = 'INSUFFICIENT SOLAR BUDGET';
+    if (failureDetailHeadline) failureDetailHeadline.textContent = `Total cumulative solar illumination fell below the minimum Artemis 40.0% requirement.`;
+    if (diagConstraint) diagConstraint.textContent = 'Sunlit Percentage ≥ 40.0%';
+    if (diagRun) diagRun.textContent = `${f.value || 0}% (Required: ≥ 40.0%)`;
+    if (diagAz) diagAz.textContent = 'Topographic Shadowing';
+    if (diagNarrative) {
+      diagNarrative.textContent = `Cumulative solar illumination at this site across the mission window is only ${f.value || 0}%, failing the Artemis 40% energy threshold needed for solar recharging and surface exploration activities.`;
+    }
+  }
+
+  // Battery status at failure hour
+  if (diagBat) {
+    if (sim.dataset?.battery && sim.dataset?.window) {
+      const idx = f.hourIndex - sim.dataset.window.startIdx;
+      if (idx >= 0 && idx < sim.dataset.battery.socWh.length) {
+        const wh = Math.round(sim.dataset.battery.socWh[idx]);
+        const pct = Math.round((100 * wh) / 1500);
+        diagBat.textContent = `${pct}% (${wh} Wh)`;
+      } else {
+        diagBat.textContent = '—';
+      }
+    } else {
+      diagBat.textContent = '—';
+    }
+  }
+
+  failureDetailModal.style.display = 'flex';
+}
+
+if (missionFailureWidget) {
+  missionFailureWidget.addEventListener('click', () => {
+    openFailureDetailModal();
+  });
+}
+
+if (btnCloseFailureModal && failureDetailModal) {
+  btnCloseFailureModal.addEventListener('click', () => {
+    failureDetailModal.style.display = 'none';
+  });
+}
+
+if (failureDetailModal) {
+  failureDetailModal.addEventListener('click', (e) => {
+    if (e.target === failureDetailModal) {
+      failureDetailModal.style.display = 'none';
+    }
+  });
+}
+
+if (btnFailureJump3d) {
+  btnFailureJump3d.addEventListener('click', () => {
+    if (failureDetailModal) failureDetailModal.style.display = 'none';
+    sim.jumpToFirstFailure();
+  });
+}
+
+if (btnFailureOpenPlanner) {
+  btnFailureOpenPlanner.addEventListener('click', () => {
+    if (failureDetailModal) failureDetailModal.style.display = 'none';
+    if (expeditionModal) {
+      expeditionModal.style.display = 'flex';
+      runExpeditionCalculation();
+    }
   });
 }
 

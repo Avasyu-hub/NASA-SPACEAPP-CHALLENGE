@@ -153,40 +153,64 @@ body, html {
   height: 13px;
 }
 
-/* Telemetry Gray Boxes */
+/* Telemetry Minimalist Boxes (Right Side) */
 .telemetry-box {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   background: var(--blender-panel-sub);
   border: 1px solid var(--blender-border);
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", sans-serif;
+  font-size: 9.5px;
+  font-weight: 400;
+  height: 22px;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
 }
 
 .box-icon {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   color: var(--blender-text-muted);
 }
 
 .box-label {
   color: var(--blender-text-muted);
-  font-weight: 600;
+  font-weight: 400;
+  font-size: 8.5px;
+  opacity: 0.8;
+  letter-spacing: 0.2px;
 }
 
 .box-value {
   color: var(--blender-text-bright);
-  font-weight: 700;
+  font-weight: 400;
+  font-size: 9.5px;
+  letter-spacing: 0.1px;
 }
 
 .status-indicator-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--blender-success);
+}
+
+.telemetry-box.status-ok {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.telemetry-box.status-ok .box-value {
+  color: #86efac;
+  font-weight: 400;
+}
+
+.telemetry-box.status-blocked {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 .telemetry-box.status-blocked .status-indicator-dot {
@@ -195,12 +219,13 @@ body, html {
 
 .telemetry-box.status-blocked .box-value {
   color: #fca5a5;
+  font-weight: 400;
 }
 
 /* Battery Bar Fill */
 .battery-bar-wrap {
-  width: 36px;
-  height: 8px;
+  width: 32px;
+  height: 7px;
   background: #181818;
   border: 1px solid var(--blender-border);
   border-radius: 2px;
@@ -213,46 +238,286 @@ body, html {
   transition: width 0.2s ease, background-color 0.2s ease;
 }
 
-/* Failure Alert Banner */
-.failure-banner {
-  position: absolute;
-  top: 48px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #2a1417;
-  border: 1px solid #7f1d1d;
-  border-radius: 4px;
-  padding: 6px 16px;
-  color: #fca5a5;
+/* Glowing Mission Failure Warning Icon Widget (between Expedition Planner and Battery) */
+.failure-warning-widget {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  z-index: 30;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  gap: 5px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 4px;
+  padding: 2px 7px;
+  height: 24px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  animation: warningWidgetPulse 2s infinite ease-in-out;
 }
 
-.alert-icon {
-  width: 16px;
-  height: 16px;
-  color: #f87171;
+@keyframes warningWidgetPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+    border-color: rgba(239, 68, 68, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.45), inset 0 0 6px rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.95);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+    border-color: rgba(239, 68, 68, 0.5);
+  }
 }
 
-.failure-msg-wrap {
+.failure-warning-widget:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: #ef4444;
+}
+
+.warning-icon-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.warning-alert-svg {
+  width: 14px;
+  height: 14px;
+  color: #ef4444;
+  filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.8));
+}
+
+.warning-pill-text {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+  font-size: 9.5px;
+  font-weight: 400; /* Regular, not bold */
+  color: #fca5a5;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* Hover Short Reason Popover */
+.failure-hover-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 290px;
+  background: rgba(18, 22, 32, 0.96);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 5px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
+  gap: 5px;
 }
 
-.failure-title {
+.failure-warning-widget:hover .failure-hover-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.popover-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.popover-cat-tag {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
   font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.8px;
+  font-weight: 400; /* Regular */
+  padding: 1px 6px;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 2px;
+  letter-spacing: 0.3px;
+}
+
+.popover-epoch-text {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--blender-text-muted);
+}
+
+.popover-body-reason {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+  font-size: 10.5px;
+  font-weight: 400; /* Regular, minimalistic */
+  color: var(--blender-text-bright);
+  line-height: 1.35;
+}
+
+.popover-click-hint {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--blender-accent);
+  margin-top: 2px;
+}
+
+/* Detailed Failure Modal */
+.blender-modal-card.failure-modal-card {
+  width: 560px;
+  max-width: 95vw;
+  background: var(--blender-panel-bg);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 24px rgba(239, 68, 68, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalPop 0.18s ease-out;
+}
+
+.modal-title-icon.failure-icon {
   color: #ef4444;
 }
 
-#failure-banner-text {
-  font-size: 11px;
+.failure-modal-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+}
+
+.failure-detail-summary-card {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 4px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fail-badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fail-kind-badge {
+  font-size: 9.5px;
+  font-weight: 400;
+  padding: 2px 7px;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+}
+
+.fail-epoch-label {
   font-family: var(--font-mono);
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--blender-text-muted);
+}
+
+.fail-headline-text {
+  font-size: 11px;
+  font-weight: 400;
+  color: #fee2e2;
+  line-height: 1.4;
+}
+
+.failure-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.diag-cell {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diag-label {
+  font-size: 8.5px;
+  font-weight: 400;
+  color: var(--blender-text-dim);
+  letter-spacing: 0.3px;
+}
+
+.diag-val {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--blender-text-bright);
+}
+
+.highlight-danger {
+  color: #f87171 !important;
+}
+
+.failure-analysis-narrative {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diag-section-label {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--blender-text-dim);
+  letter-spacing: 0.4px;
+}
+
+.diag-narrative-text {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--blender-text);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.failure-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.failure-modal-actions button {
+  flex: 1;
+  height: 32px;
+  font-weight: 400; /* Regular font */
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+}
+
+.secondary-action {
+  background: var(--blender-btn-bg);
+  border: 1px solid var(--blender-border);
+  color: var(--blender-text-bright);
+}
+
+.secondary-action:hover {
+  background: var(--blender-btn-hover);
+  border-color: var(--blender-accent);
 }
 
 /* Blender Right Tools Dock */
@@ -1039,15 +1304,16 @@ kbd {
 }
 
 .blender-modal-card.expedition-card {
-  width: 580px;
+  width: 680px;
   max-width: 95vw;
+  max-height: 90vh;
   background: var(--blender-panel-bg);
   border: 1px solid var(--blender-border);
   border-radius: 6px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
   animation: modalPop 0.18s ease-out;
 }
 
@@ -1323,4 +1589,183 @@ kbd {
   background: var(--blender-btn-hover);
   border-color: var(--blender-accent);
 }
+
+/* Timeline Expedition Active Badge */
+.timeline-expedition-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  height: 24px;
+}
+
+.timeline-expedition-badge .badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+}
+
+.timeline-expedition-badge .badge-title {
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.timeline-expedition-badge .badge-range {
+  color: var(--blender-text-bright);
+}
+
+.timeline-expedition-badge .badge-clear-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--blender-text-bright);
+  border-radius: 2px;
+  font-size: 9px;
+  font-family: var(--font-ui);
+  padding: 1px 6px;
+  cursor: pointer;
+  margin-left: 4px;
+  transition: all 0.12s;
+}
+
+.timeline-expedition-badge .badge-clear-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.timeline-scrubber-area.expedition-active {
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.4);
+  border-radius: 4px;
+}
+
+/* Hour-to-Hour Expedition Ribbon and Detailed Analysis */
+.exp-ribbon-container {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.exp-ribbon-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ribbon-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--blender-text-muted);
+}
+
+.ribbon-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  color: var(--blender-text-dim);
+}
+
+.leg-item {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.leg-color {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.leg-sun { background: #facc15; }
+.leg-earth { background: #38bdf8; }
+.leg-bat { background: #4ade80; }
+.leg-fail { background: #ef4444; }
+
+.exp-hourly-strip {
+  width: 100%;
+  height: 54px;
+  border-radius: 3px;
+  cursor: crosshair;
+  display: block;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.exp-strip-hover-info {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--blender-text-bright);
+  min-height: 18px;
+  line-height: 18px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.exp-analysis-card {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.analysis-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.analysis-row.verdict-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.analysis-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.analysis-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.analysis-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--blender-text-dim);
+  letter-spacing: 0.5px;
+}
+
+.analysis-text {
+  font-size: 11px;
+  color: var(--blender-text-bright);
+}
+
 
